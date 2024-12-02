@@ -1,0 +1,340 @@
+---
+title: "Ejercicio exploratorio de encuadres mediáticos"
+author: "GJJM"
+date: "5/23/2024"
+output:
+  html_document: default
+---
+
+
+```{r, include=F}
+rm(list = ls())
+```
+
+```{r, include=FALSE}
+#Cargar librerías
+library(gt)
+library(knitr)
+library(tidyverse)
+library(readxl)
+```
+
+```{r, include=FALSE}
+#Cargar la base
+setwd("~/Downloads")
+base <- read_excel("Notas.xlsx")
+```
+
+```{r, include=FALSE}
+#Explorar la base
+names(base)
+class(base)
+unique(base$Circulación)
+table(base$Circulación)
+
+```
+
+```{r, include=FALSE}
+#Tipo de nota
+unique(base$`Tipo de pieza periodística`)
+table(base$`Tipo de pieza periodística`)
+```
+
+```{r, include=F}
+#Publicación
+unique(base$Publicación)
+table(base$Publicación)
+```
+
+```{r, include=F}
+#Sexo del autor
+unique(base$`Autor(a)`)
+table(base$`Autor(a)`)
+```
+
+```{r, include=F}
+#Tipo de información
+unique(base$Información)
+table(base$Información)
+```
+
+```{r, include=F}
+#Mención del partido
+#Mención del partido se refiere a si el partido es mencionado en el título (2), en el cuerpo del texto (1) o si no es mencionado en absoluto (0).
+
+class(base$`Mención del partido`)
+unique(base$`Mención del partido`)
+table(base$`Mención del partido`)
+
+```
+
+```{r, include=F}
+#Evaluación del partido
+class(base$`Evaluación del partido`)
+unique(base$`Evaluación del partido`)
+table(base$`Evaluación del partido`)
+```
+
+```{r, include=F}
+#Encuadre
+class(base$Encuadre)
+unique(base$Encuadre)
+table(base$Encuadre)
+```
+
+```{r, include=F}
+#Incongruencia
+class(base$`Ataque (incongruente)`)
+unique(base$`Ataque (incongruente)`)
+table(base$`Ataque (incongruente)`)
+```
+
+```{r,include=F}
+#Congruencia
+class(base$`Defensa (congruente)`)
+unique(base$`Defensa (congruente)`)
+table(base$`Defensa (congruente)`)
+```
+
+
+
+```{r, include=F}
+
+### Base filtrada con las notas que representan el 60% de la base
+
+basePub <- subset(base, Publicación == "El País" | 
+                    Publicación == "El Financiero" |
+                    Publicación == "Infobae" |
+                    Publicación == "Milenio" |
+                    Publicación == "Latinus" |
+                    Publicación == "Proceso" |
+                    Publicación == "Expansión")
+
+table(basePub$Publicación)
+
+table(basePub$`Tipo de pieza periodística`)
+table(basePub$`Evaluación del partido`)
+
+table(basePub$Publicación, basePub$Encuadre)
+
+
+publicaciones <- as.data.frame(table(basePub$Publicación))
+publicaciones <- rename(publicaciones, Publicación = Var1, Notas = Freq)
+
+```
+
+```{r, include=F}
+#Para el encuadre
+table(basePub$Encuadre)
+basePub$Encuadre <- as.factor(basePub$Encuadre)
+levels(basePub$Encuadre) <- c("Sin encuadre", "1 encuadre", "2 encuadres")
+
+encuadres <- as.data.frame(table(basePub$Publicación, basePub$Encuadre))
+encuadres <- encuadres %>% 
+  pivot_wider(names_from = Var2, values_from = Freq) 
+encuadres <- rename(encuadres, Publicación = Var1)
+
+encuadres
+
+#encuadres %>% gt()
+```
+
+```{r, include=F}
+#Encuadres (incongruente, congruente)
+#Encuadre incongruente
+table(basePub$Publicación, basePub$`Ataque (incongruente)`)
+basePub$`Ataque (incongruente)` <- as.factor(basePub$`Ataque (incongruente)`)
+levels(basePub$`Ataque (incongruente)`) <- c("No usado", "Implícito", "Explícito")
+
+incongruente <- as.data.frame(table(basePub$Publicación, basePub$`Ataque (incongruente)`))
+incongruente <- incongruente %>% 
+  pivot_wider(names_from = Var2, values_from = Freq) 
+incongruente <- rename(incongruente, Publicación = Var1)
+#incongruente %>% gt()
+
+
+
+#Encuadre congruente
+table(basePub$Publicación, basePub$`Defensa (congruente)`)
+basePub$`Defensa (congruente)` <- as.factor(basePub$`Defensa (congruente)`)
+levels(basePub$`Defensa (congruente)`) <- c("No usado", "Implícito", "Explícito")
+
+congruente <- as.data.frame(table(basePub$Publicación, basePub$`Defensa (congruente)`))
+congruente <- congruente %>% 
+  pivot_wider(names_from = Var2, values_from = Freq) 
+congruente <- rename(congruente, Publicación = Var1)
+
+congruente
+#congruente %>% gt()
+```
+
+```{r, include=F}
+# Evaluación del partido
+
+table(basePub$Publicación, basePub$`Evaluación del partido`)
+basePub$`Evaluación del partido` <- as.factor(basePub$`Evaluación del partido`)
+levels(basePub$`Evaluación del partido`) <- c("Negativa", "Neutral")
+
+evaluacion <- as.data.frame(table(basePub$Publicación, basePub$`Evaluación del partido`))
+evaluacion <- evaluacion %>% 
+  pivot_wider(names_from = Var2, values_from = Freq) 
+evaluacion <- rename(evaluacion, Publicación = Var1)
+
+
+```
+
+```{r, include=F}
+basePub2 <- subset(base, Publicación == "El País" | 
+                    Publicación == "El Financiero" |
+                    Publicación == "Infobae" |
+                    Publicación == "Milenio" |
+                    Publicación == "Latinus" |
+                    Publicación == "Proceso" |
+                    Publicación == "Expansión")
+
+
+
+basePub2$`Ataque (incongruente)` <- as.factor(basePub2$`Ataque (incongruente)`)
+levels(basePub2$`Ataque (incongruente)`) <- c(0, 1, 1)
+incong <- basePub2 %>% 
+	group_by(Publicación) %>% 
+  count(`Ataque (incongruente)`) %>% 
+  filter(`Ataque (incongruente)`==1) %>% 
+  select(-`Ataque (incongruente)`)
+
+
+
+basePub2$`Defensa (congruente)` <- as.factor(basePub2$`Defensa (congruente)`)
+levels(basePub2$`Defensa (congruente)`) <- c(0, 1, 1)
+cong <- basePub2 %>% 
+	group_by(Publicación) %>% 
+  count(`Defensa (congruente)`) %>% 
+  filter(`Defensa (congruente)`==1) %>% 
+  select(-`Defensa (congruente)`)
+
+	
+frames <- merge(x = incong, y = cong, by = "Publicación")	
+frames <- rename(frames, Incongruencia = n.x, Congruencia = n.y)
+
+
+```
+
+**Estudio exploratorio sobre los encuadres utilizadon para comunicar el escándalo de Félix Salgado Macedonio**
+
+Con base en el artículo de Maier, Jansen y von Sikorski (año), hice un estudio exploratorio para conocer los encuadres que la prensa utilizó para comunicar cierta violación a las normas de Félix Salgado Macedonio en 2021.
+
+En primer lugar, hice una búsqueda en la plataforma Google News, filtrando las fechas entre el 1 de noviembre de 2020 y el 30 de junio de 2021. Se eligió el mes de noviembre para empezar porque fue cuando se empezó a manejar el nombre de Félix Salgado como un posible contendiente a la candidatura de MORENA a la gubernatura de Guerrero, así como la idea de realizar una encuesta para elegir al candidato. El mes de junio es el mes de elecciones, además de que buscaba conocer si en la presna se seguía hablando del escándalo un mes después de la elección.
+
+Esta investigación sostiene que la transgresión de normas políticas hecha por un candidato afectará a su partido de manera significativa cuando la prensa relacione el escándalo con el partido político, y además, sostengo, que la manera en la que la prensa va a relacionarlos es mediante el uso de encuadres. Como he mencionado a lo largo de este trabajo, la prensa decide en qué enfocar la atención respecto a un tema, por lo que puede manejar el caso solo alrededor de la personas transgresora, o puede decidir poner el foco también en otros agentes e instituciones. En este rápido estudio exploratorio busco saber si, en efecto, la prensa mexicana relacionó *de alguna manera* el escándalo de Félix Salgado Macedonio con el partido político MORENA, es decir, si la prensa mencionaba como un agente importante a MORENA en el desarrollo del escándalo.
+
+De una primera búsqueda, recopilé 126 nota periodísticas. En una primera lectura de las notas, sin analizarlas propiamente, logré identificar que la prensa repetía dos posturas: una que atacaba al partido político por la postulación y otra que justificaba la postulación. De esta manera, identifiqué dos encuadres a los que nombré "Ataque (incongruente)" y "Defensa (congruente)".
+
+El encuadre de **ataque** reune posturas en las que se le reclama al partido político por la postulación como candidato de un perfil como el de Félix Salgado Macedonio, en donde generalmente se argumenta que la postulación es incongruente con los principios del partido y con las ideas que el partido quiere representar y transmitir. Por ello, a este encuadre lo identifico como un **"encuadre de incongruencia"**. Algunos ejemplos encontrados en las notas son los siguientes:
+
+El partido de López Obrador, Morena, puso los derechos de las mujeres al centro de la campaña. Los funcionarios del partido prometieron crear un nuevo pacto con los mexicanos que desechara las viejas formas elitistas de los gobiernos anteriores y se centrara en cambio en empoderar a los marginados, entre ellos las mujeres y los pobres. (nota 17)
+
+"Morena es un partido de incongruencias, un partido en donde los peores personajes de la política están ahí", subrayó Cortés Mendoza. (nota 30)
+
+El lopezobradorismo, ese movimiento que denunciaba los abusos y aspiraba a moralizar la vida pública, ha postulado a un hombre acusado de acoso y abuso sexual como candidato a gobernador de Guerrero.
+
+Así, el líder de un movimiento que aspiraba a moralizar la vida pública, que denunciaba los abusos y apelaba a la indignación social para combatirlos, terminó descalificando a las víctimas como si fueran sus adversarias políticas. Y el encargado del partido puso de pretexto esa misma noción de legalidad contra la que por tanto años protestaron para no hacerse cargo de la injusticia. ¿Y ellos son los que presumen que no son iguales a los de antes? ¿Que las cosas ya cambiaron? ¿Con qué cara? (nota 60)
+
+Postulaciones como la de Félix Salgado Macedonio sólo harán un gran daño al partido y pondrán en riesgo su congruencia y credibilidad, aseguran miembros de la Asamblea Constituyente de la Ciudad de México de Morena en una carta dirigida a la Comisión Nacional de Honestidad y Justicia del partido. (nota 83)
+
+Por su parte, el encuadre de **defensa** alude a aquellas posiciones en las que se justifica la postulación de Félix Salgado Macedonio porque ésta es el resutlado de un ejercicio democrático dentro del partido político, en el que se pone a consideración de la ciudadanía, mediante encuestas, quién es el perfil mejor posicionado para representar al partido. Al ser Félix Salgado el ganador de dicha encuesta, el partido justificó y dio legitimidad a esa postulación aduciendo que fue la propia población de Guerrero quien respaldaba la candidatura. Generalmente, eran los dirigentes partidistas o el Presidente de la República quienes tomaron esta postura, que tuvo eco en diversas notas periodísticas. Como ejemplo, presento los siguientes extractos.
+
+El presidente Andrés Manuel López Obrador dijo en la conferencia de prensa matutina del 17 de febrero que las acusaciones son parte del proceso de elecciones y defendió que Felix Salgado es el candidato porque ganó en la encuesta interna del partido sobre quién sería la persona ideal para postularse a la gubernatura. (nota 32)
+
+El dirigente nacional de Morena aseguró que respeta la opinión de muchas mujeres, "pero también la gente en Guerrero merece respeto". "Hoy sí son muy conocidas, más del sesenta, setenta por ciento de la gente en Guerrero está enterada de las acusaciones y no las cree y tan no las cree que le da de nuevo su apoyo a Félix. También hay que respetar a la gente. Respeto la opinión de muchas mujeres, pero también la gente en Guerrero merece respeto" (nota 40)
+
+El presidente López Obrador pidió que no haya politiquería en los señalamientos de abuso sexual contra Félix Salgado Macenio, y pidió respetar las encuestas en las que salió victorioso para ser candidato a gobernador de Guerrero. (nota 110)
+
+El presidente ha respondido de manera esquiva que la candidatura de Salgado Macedonio se mantendrá, ya que es el aspirante con más respaldo interno después de los datos que arrojaron una serie de encuestas levantadas entre militantes locales en Guerrero. "Si se hacen encuestas y la gente dice estoy de acuerdo con este compañero, se debe de respetar porque la política es asunto de todos, no de las élites" (nota 105)
+
+La identificación de los encuadres se dio de una lectura detallada de las notas periodísticas, buscando en primer lugar, si había una posición evidente del periodista o responsable de la pieza periodística respecto al tema y, en segundo lugar, si la o el periodista recogía o destacaba declaraciones de la élites respecto al tema. El escándalo protagonizado por FSM generó una especie de ruptura dentro del partido político, lo que generó toda clase declaraciones tanto de dirigentes partidistas como de militantes y simpatizantes. De acuerdo con Druckman (año) el que se recojan declaraciones de las élites o de personas involucradas en un suceso -es decir, a quién se le da voz- es, en sí mismo, un encuadre. Es de esta manera, también, como la prensa presta particular interés en algunas personas sobre otras.
+
+Para identificar de manera sistemática si me encontraba frente a alguno de los dos encuadres que de manera intuitiva identifiqué en una primera lectura, y con base en el trabajo de Maier et al (año), utilicé el modelo que Entman (1993) propone en su influyente artículo sobre framing, en donde explica cómo se define y qué caracteriza a un encuadre. Entman nos dice que los encuadres, en primer lugar, ayudan a **definir un problema**, es decir, que identifican a un agente que está haciendo algo que le genera ciertos costos o beneficios. Luego, nos dice, los frames nos ayudan a **identificar causas** o las fuerzas que están creando el problema en cuestión. La **evaluación moral** que se hace de los agentes o de las causas es otra característica de los encuadres. Por último, los encuadres **sugieren remedios** al ofrecer medios de solución al problema o posibles cursos de acción.
+
+Con base en los cuatro elementos que contiene un encuadre, me dispuse a identificar y clasificar las notas periodísticas con base en el siguiente cuadro:
+
+Para la codificación de los encuadres seguí el ejemplo del trabajo antes mencionado de Maier et al (año), quienes no solo identifican también encuadres de ataque y defensa, sino que identifican en cada nota si el encuadre es implícito o explícito, y también si en las notas es mencionado uno o los dos encuadres. Así, las notas periodísticas analizadas podían no mostrar encuadres o contener uno o los dos encuadres al mismo tiempo; estos encuadres podían ser implícitos si cumplen con dos o tres de los indicadores enlistados en el cuadro (no) y explícitos si cumplen con las cuatro características.
+
+Una vez identificados los encuadres de **ataque (incongruencia)** y **defensa (congruencia)**, elaboré una base de datos con 133 observaciones, en la que registré la fecha en la que fue publicada la nota, el nombre de la publicación, el alcance de la circulación de la publicación (nota al pie: si bien las notas fueron encontradas en internet y cualquier persona con acceso a la red podría encontrarlas, es posible que algunos medios de cobertura local tengan más impacto y sean más compartidos a nivel local que nacional), el tipo de pieza periodística, el sexo del autor de la nota, si había mención explícita del partido político y si se podía deducir una calificacióbn implícita hacia el partido político. Igualmente, distinguí la presencia de encuadres y si éstos eran implícitos o explícitos.
+
+**Resultados**
+
+Para que las noticias pudieran formar parte de este ejercicio debían cumplir con la condición de que se mencionen las acusaciones en contra de Félix Salgado Macedonio de haber ejercido violencia sexual. Este punto es importante de destacar porque durante el periodo de búsqueda y por el criterio de búsqueda, varias noticias relacionadas con FSM aparecieron, pero no todas relacionadas con el escándalo.
+
+Como se mencionó, a mediados de abril de 2021, el Tribunal Electoral del Poder Judicial de la Federación retiró en definitiva la candidatura a Salgado Macedonio por no haber presentado informe de gasto de precampaña, y MORENA postuló en su lugar a Evelyn Salgado. Por estos motivos, después de abril, si bien el nombre de Salgado Macedonio sigue apareciendo en la prensa, la centralidad ya no está en el evento del que era acusado, sino en el retiro de su candidatura y en la campaña de Evelyn Salgado, su hija.
+
+De igual manera, es importante comentar que la prensa relacionó no solo a FSM y al partido, sino también al presidente de la República, Andrés Manuel López Obrador, sobre todo porque fue varias veces cuestionado en las conferencias de prensa matutinas llamas coloquialmente "mañananeras". Varias de las notas que se analizaron mencionaban las declaraciones del presidente, que generalmente minimizaba las acusaciones o explicaba de dónde y por qué surgían, además de que daba preeescripciones sobre cómo actuar, al declarar que MORENA debe respetar la voluntad del pueblo que eligió a Salgado Macedonio como su candidato.
+
+Al momento de clasificar estas notas, decidí que las tomaría como encuadre en defensa del partido (congruencia) siempre y cuando el presidente hiciera una alusión implícita o explícita al partido, es decir, el presidente debe defender y mostrar como congruente a MORENA, no hacer una defensa del individuo.
+
+El 45% de las piezas periodísticas analizadas no especifican a un autor(a), por lo que están catalogadas como escritas por la "Redacción". De las notas que sí tienen autoría (72), el 63% de éstas están escritas por mujeres, lo que nos sugiere que la cobertura del tema fue asignado a mujeres por ser un asunto que involucraba violencia sexual. Este dato nos habla de que la sociedad cada día demanda una cobertura de estos temas por parte de mujeres, o bien, que son las mujeres periodistas las que más se involucran en la cobertura de este tipo de temas.
+
+El partido es mencionado en 126 de las 133 notas, 63% en el cuerpo del texto, y 30% en el encabezado de la nota, sugiriendo que la noticia habla ya de entrada del partido político y sugiriendo que el tema de la transgresión sí está directamente relacionada con el partido. Lo anterior no quiere decir que la noticia contenga un encuadre, simplemente que, al ser mencionado el partido, se le relaciona.
+
+Debido a que hubo publicaciones de las que solo se encontró una noticia cubriendo este tema, decidí filtrar la base de datos bajo el criterio de cobertura del tema por publicación, con lo que elegí solo las publicaciones que tenían 8 o más notas sobre el tema en cuestión. Luego del filtro se trabajó con una base de 80 observaciones concentradas en 7 publicaciones: El Financiero, El País, Expansión, Infobae, Latinus, Milenio y Proceso.
+
+```{r, echo=FALSE}
+publicaciones %>% 
+  gt() %>% 
+  tab_header(title = md("Número de noticias por publicación")) %>% 
+  tab_footnote(footnote = md("Fuente: elaboración propia"))
+```
+
+De las notas analizadas después del filtro, la mayoría de las notas dan una evaluación neutra al partido, es decir, no dejaban ni implícita ni explícitamente que el partido estaba actuando mal. Esto se puede explicar porque varias de las notas analizadas en esta muestra solo presentaron información respecto al caso, sin un encuadre, del tipo que sea, que dejara en evidencia alguna evaluación. 
+
+```{r, echo=FALSE}
+evaluacion %>% 
+  gt() %>% 
+  tab_header(title = md("Evaluación del partido, por publicación")) %>% 
+  tab_footnote(footnote = md("Fuente: elaboración propia"))
+```
+
+
+Respecto a la presencia o no de encuadres en las notas, el 58% (47) de las notas presenta uno o dos encuadres, lo cual nos dice que, si bien el tema fue ampliamente cubierto, los encuadres que relacionan el escándalo con el partido no fueron ámpliamente utilizados. Esto no quiere decir que las noticias no contenían algún tipo de encuadre, sino que solamente no contenían el encuadre ya se de congruente o inconguente. Como se mencionó, es posible que haya declaraciones del presidente sosteniendo que las acusaciones son politiquería, y a eso se le podría llamar encuadre; sin embargo, para los propósitos de esta investigación, la nota no presentaba el encuadre que estoy buscando. 
+
+
+```{r, echo=F}
+encuadres %>% 
+  gt() %>%
+  tab_header(title = md("Número de encuadres utilizados, por publicación")) %>% 
+  tab_footnote(footnote = md("Fuente: elaboración propia"))
+```
+
+De las notas que sí contenían encuadres, mayormente el encuadre que fue utilizado fue el de incongruencia, siendo mayoría en seis de las siete publicaciones. Destacan los casos de El Financiero, El País y Expansión que utilizaron de manera amplia el encuadre de incongruencia respecto al de congruencia. 
+
+El País, específicamente, es un medio de alcance internacional que hizo una amplia cobertura del caso mayormente dando a sus lectores foco en la incongruencia que representaba para MORENA el postular a un candidato como Salgado Macedonio. Este medio dio más peso a las declaraciones de las élites disidentes en MORENA que a la dirigencia nacional o al presidente de la República, o cuando las declaraciones del presidente acaparaban el titular, éstas eran contrastadas con declaraciones de desacuerdo al interior del partido. 
+
+Por su parte Expansión, quien también cubrió ámpliamente el tema, dio voz a columnistas que condenaron al partido político y, por lo general,  también se valía de declaraciones de militantes y simpatizantes que criticaron como incongruente al partido. 
+
+```{r, echo=FALSE}
+frames %>% 
+  gt() %>%
+  tab_header(title = md("Tipo de encuadres utilizados, por publicación")) %>% 
+  tab_footnote(footnote = md("Fuente: elaboración propia"))
+```
+
+Respecto a si los encuadres fueron presentados de manera implícita o explícita, los dos fueron presentados de manera más implícita, lo que quiere decir que las notas que así los presentaron no cubrían los cuatro elementos que componen un encuadre de acuerdo con Entman (1993). 
+
+Pendiente: poner totales en los cuadros. 
+```{r, echo=F}
+incongruente %>% 
+  gt() %>%
+  tab_header(title = md("Uso explícito e implícito del encuadre **incongruente**, por publicación")) %>% 
+  tab_footnote(footnote = md("Fuente: elaboración propia"))
+
+congruente %>% 
+  gt() %>%
+  tab_header(title = md("Uso explícito e implícito del encuadre **congruente**, por publicación")) %>% 
+  tab_footnote(footnote = md("Fuente: elaboración propia"))
+
+```
+
+Este ejercicio exploratorio de encuadres me permite justificar la elección de los encuadres de congruencia y de incongruencia para investigar el efecto que tiene el uso de los encuadres en las actitudes y el comportamiento político. Con base en la evidencia recolectada en este ejercicio puedo asegurar que la prensa mexicana relacionó el escándalo de Salgado Macedonio con el partido político que lo postuló a través de estas dos posiciones, ya sea de manera implícita o explícita y, sobre todo, a través de la presentación de declaraciones de las élites partidistas. 
+
+Por ello, para el experimento que propongo en las próximas páginas, elaboraré notas periodísticas basadas en las aquí analizadas para investigar si alguno de estos dos encuadres *causa* que la evaluación que se tiene del partido político se vea afectada negativamente y con ello la intención de voto por el partido se vea igualmente afectada.
+
+

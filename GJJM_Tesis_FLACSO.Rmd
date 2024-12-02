@@ -1,0 +1,2070 @@
+---
+title: "GJJM_Tesis"
+author: "GJJM"
+date: "10/2/2024"
+output: html_document
+---
+
+```{r, include=F}
+rm(list = ls())
+```
+
+**Librerías**
+```{r, include=FALSE}
+#Cargar librerías
+library(tidyverse)
+library(readxl)
+library(patchwork)
+library(psych)
+library(Hmisc)
+library(corrplot)
+library(PerformanceAnalytics)
+library(dplyr)
+library(gt)
+library(see)
+library(glue)
+library(ggtext)
+library(ggplot2)
+
+#Nota, en algunas versiones de R, el paquete (glm2) desactiva la función select. Por ello incluyo el comando (dplyr::select) para volver a activarlo. 
+```
+
+
+#/pagebreak Cargar la base
+La base de datos que comparto es la bse directamente descargada del programa de recolección de encuestas Qualtrics Analytics./
+No está limpia, esto con la intención de que se conozca cómo se produce la base. La base completa se compone de 856 observaciones y 81 variables. 
+```{r, include=FALSE}
+
+setwd("~/Downloads")
+df1 <- read_excel("170624_Experimento.xlsx")
+names(df1) #para conocer el nombre de las 81 variables
+```
+
+#/pagebreak Primeros filtros
+```{r, include=FALSE}
+# Filtrar la base para quedarme solo con las observaciones que la plataforma registró como terminadas.
+base <- df1 %>% 
+  filter(Finished=="Verdadero")
+
+# A veces, la plataforma da como terminadas algunas observaciones en las que no asignó tratamientos, por lo que el experimento no se llevó a cabo. 
+# Por ello, hago un nuevo filtro, para quedarme solo con las observaciones que tuvieron un tratamiento asignado. 
+unique(base$Tratamiento)
+
+base <- base %>% 
+  filter(!is.na(Tratamiento))
+
+#Luego de los filtros, nos quedamos con 556 observaciones.
+```
+
+**Otros filtros**\
+Reviso otras variables que puedan indicar que el experimento no se llevó a cabo de manera adecuada.\ 
+
+Primero hago una inspección del tiempo que tomaron las personas en contestar la encuesta.\
+Dejo solo las observaciones que se encuentren entre los cuantiles 5 y 95. Después de aplicar ese filtro quedan **499 observaciones**
+
+```{r, include=FALSE}
+mean(base$"Duration (in seconds)")/60
+unique(base$"Duration (in seconds)")/60
+
+base <- base %>% rename(duracion = "Duration (in seconds)")
+
+base <- base %>% 
+  mutate(duracion = duracion/60) 
+
+quantils <- base %>%
+  summarise(quantil_5=quantile(duracion,0.05),
+            quantil_95=quantile(duracion,0.95))
+
+quantil_5 <- quantile(base$duracion,0.05)
+quantil_95 <- quantile(base$duracion,0.95)
+
+base <- base %>%
+  mutate(DummyTiempo = case_when(duracion <= 	quantil_5 ~ 0,
+                                 duracion > quantil_5 & duracion < quantil_95 ~ 1,
+                                 duracion >= quantil_95 ~ 0))
+
+base %>% group_by(DummyTiempo) %>% tally()
+
+```
+
+#/pagebreak Conversión de variables
+```{r, include=FALSE}
+#Conversión de variables
+
+base$Tratamiento <- as.factor(base$Tratamiento)
+levels(base$Tratamiento) <- c("Control", "Escandalo", "Congruencia", "Incongruencia")
+
+base$sexo <- as.factor(base$sexo)
+
+```
+
+#/pagebreak Estadística descriptiva
+```{r, include=FALSE}
+unique(base$sexo)
+table(base$sexo)
+range(sexo)
+```
+
+#/pagebreak Chequeo de manipulación
+```{r, include=FALSE}
+
+manipulacion <- base %>% 
+  dplyr::select(Tratamiento, escandalo, congruente, incongruente) 
+  
+#Pruebas de manipulación
+c<-table(manipulacion$Tratamiento, manipulacion$congruente)
+d<-table(manipulacion$Tratamiento, manipulacion$incongruente)
+e<-table(manipulacion$Tratamiento, manipulacion$escandalo)
+
+chisq.test(c)
+chisq.test(d)
+chisq.test(e)
+
+
+#Tabla con resultados del chequeo de manipulación
+z <- tibble(Pruebas=c("Congruencia", "Incongruencia", "Escándalo"),
+            "Chi^2" = c(45.215, 56.029, 2.7847),
+            pvalor=c("4.242e-08", "2.872e-10", "0.8353")) 
+
+
+z %>% 
+  gt()%>% 
+  tab_header(title = md("Chequeo de manipulación (prueba de Chi^2")) %>% 
+  tab_footnote(footnote = md("Fuente: elaboración propia"))
+
+rm(c,d,e,z)
+
+```
+
+
+#/pagebreak Chequeo de aleatorización
+Se llevaron a cabo diferencia de medias y de proporciones que confirman que los sujetos están distribuidos de manera equitativa en las cuatro condiciones, de acuerdo con sexo, edad, nivel educativo, identificación partidista y el conocimiento previo de Félix Salgado Macedonio. 
+
+**Chequeo de aleatorización, sexo**
+```{r, include=FALSE}
+# Chequeo de aleatorización, con z-test, sexo
+table(base$Tratamiento)
+
+#T-test prop.test(x=c(éxitos tratamiento,éxitos control),n=c(total tratamiento, total control))
+class(base$sexo)
+table(base$Tratamiento, base$sexo)
+
+pt1 <- prop.test(x=c(74,81),n=c(136,136)) 
+pt2 <- prop.test(x=c(76,81),n=c(131,136))
+pt3 <- prop.test(x=c(74,81),n=c(136,136))
+
+a <- tibble(Tratamiento=c("Control", "Escandalo", "Congruencia", "Incongruencia"),
+  Mujeres=c(81,74,76,74)
+  )
+
+b <- a %>% 
+  ggplot(aes(x=Tratamiento, y=Mujeres)) +
+  geom_bar(stat = "identity")
+
+b
+
+tpt1 <- tibble(estimacion="Control - Escándalo",
+               diferencia = pt1$estimate[1]-pt1$estimate[2],
+               li=pt1$conf.int[1],
+               ls=pt1$conf.int[2],
+               pv=pt1$p.value)
+
+g1 <- tpt1 %>% 
+  ggplot(aes(x=estimacion, y=diferencia)) +
+  geom_point(color="blue")+
+  geom_errorbar(aes(ymin=li, ymax=ls), width = .3) +
+  geom_text(aes(x=0.7, y=diferencia, label=paste("Diferencia =",round(diferencia,2))), size=3, color="blue")+
+  geom_hline(aes(yintercept=0, linetype="dashed", color="red")) +
+  guides(fill=F) +
+  theme(legend.position = "none") +
+  xlab(paste("p-valor=",round(tpt1$pv,2))) + ylab("")
+
+
+
+
+tpt2 <- tibble(estimacion="Control - Congruencia",
+               diferencia = pt2$estimate[1]-pt2$estimate[2],
+               li=pt2$conf.int[1],
+               ls=pt2$conf.int[2],
+               pv=pt2$p.value)
+
+
+tpt3 <- tibble(estimacion="Control - Incongruencia",
+               diferencia = pt3$estimate[1]-pt3$estimate[2],
+               li=pt3$conf.int[1],
+               ls=pt3$conf.int[2],
+               pv=pt3$p.value)
+
+
+g2 <- tpt2 %>% 
+  ggplot(aes(x=estimacion, y=diferencia)) +
+  geom_point(color="blue")+
+  geom_errorbar(aes(ymin=li, ymax=ls), width = .3) +
+  geom_text(aes(x=0.7, y=diferencia, label=paste("Diferencia =",round(diferencia,2))), size=3, color="blue")+
+  geom_hline(aes(yintercept=0, linetype="dashed", color="red"))+
+  guides(fill=F) +
+  theme(legend.position = "none") +
+  xlab(paste("p-valor=",round(tpt2$pv,2))) + ylab("")
+
+g3 <- tpt3 %>% 
+  ggplot(aes(x=estimacion, y=diferencia)) +
+  geom_point(color="blue")+
+  geom_errorbar(aes(ymin=li, ymax=ls), width = .3) +
+  geom_text(aes(x=0.7, y=diferencia, label=paste("Diferencia =",round(diferencia,2))), size=3, color="blue")+
+  geom_hline(aes(yintercept=0, linetype="dashed", color="red"))+
+  guides(fill=F) +
+  theme(legend.position = "none") +
+  xlab(paste("p-valor=",round(tpt3$pv,2))) + ylab("")
+
+
+gcombinados <- g1 + g2 + g3 +
+  plot_layout(ncol = 3, 
+              nrow = 1,
+             # widths = c(1, 1), 
+             # heights = c(3,3)
+              ) +
+                plot_annotation(title = "Chequeo de aleatorización, sexo (respecto al grupo de control)",
+                                caption = "Fuente: elaboración propia")
+```
+
+```{r, echo=FALSE, fig.align='center', fig.width=8, fig.height=3.5}
+b
+
+z <- tibble(Pruebas=c("Escándalo", "Congruencia", "Incongruencia"),
+            "Chi^2" = c(0.54, 0.018, 0.54),
+            pvalor=c("0.4625", "0.8951", "0.4625")) 
+
+z %>% 
+  gt()%>% 
+  tab_header(title = md("Chequeo de aleatorización, sexo (prueba de Chi^2")) %>% 
+  tab_footnote(footnote = md("Fuente: elaboración propia"))
+
+gcombinados
+
+rm(a,b,pt1,pt2,pt3,tpt1,tpt2,tpt3,g1,g2,g3,gcombinados, z)
+```
+
+**Chequeo de aleatorización, edad**
+```{r, include=FALSE}
+class(base$edad)
+
+a<-base %>% 
+  filter(Tratamiento=="Control" | Tratamiento=="Escandalo") 
+
+tt1<-t.test(edad ~ Tratamiento, data = a)
+
+ttt1 <- tibble(estimacion="Control - Escándalo",
+               diferencia = tt1$estimate[2]-tt1$estimate[1],
+               li=tt1$conf.int[1],
+               ls=tt1$conf.int[2],
+               pv=tt1$p.value)
+
+g1 <- ttt1 %>% 
+  ggplot(aes(x=estimacion, y=diferencia)) +
+  geom_point(color="blue")+
+  geom_errorbar(aes(ymin=li, ymax=ls), width = .3) +
+  geom_text(aes(x=0.7, y=diferencia, label=paste("Diferencia =",round(diferencia,2))), size=3, color="blue")+
+  geom_hline(aes(yintercept=0, linetype="dashed", color="red")) +
+  guides(fill=F) +
+  theme(legend.position = "none") +
+  xlab(paste("p-valor=",round(ttt1$pv,2))) + ylab("")
+
+
+b<-base %>% 
+  filter(Tratamiento=="Control" | Tratamiento=="Congruencia") 
+
+tt2<-t.test(edad ~ Tratamiento, data = b)
+
+ttt2 <- tibble(estimacion="Control - Congruencia",
+               diferencia = tt2$estimate[2]-tt2$estimate[1],
+               li=tt2$conf.int[1],
+               ls=tt2$conf.int[2],
+               pv=tt2$p.value)
+
+g2 <- ttt2 %>% 
+  ggplot(aes(x=estimacion, y=diferencia)) +
+  geom_point(color="blue")+
+  geom_errorbar(aes(ymin=li, ymax=ls), width = .3) +
+  geom_text(aes(x=0.7, y=diferencia, label=paste("Diferencia =",round(diferencia,2))), size=3, color="blue")+
+  geom_hline(aes(yintercept=0, linetype="dashed", color="red")) +
+  guides(fill=F) +
+  theme(legend.position = "none") +
+  xlab(paste("p-valor=",round(ttt1$pv,2))) + ylab("")
+
+
+c<-base %>% 
+  filter(Tratamiento=="Control" | Tratamiento=="Incongruencia") 
+
+tt3<-t.test(edad ~ Tratamiento, data = c)
+
+ttt3 <- tibble(estimacion="Control - Incongruencia",
+               diferencia = tt3$estimate[2]-tt3$estimate[1],
+               li=tt3$conf.int[1],
+               ls=tt3$conf.int[2],
+               pv=tt3$p.value)
+
+g3 <- ttt3 %>% 
+  ggplot(aes(x=estimacion, y=diferencia)) +
+  geom_point(color="blue")+
+  geom_errorbar(aes(ymin=li, ymax=ls), width = .3) +
+  geom_text(aes(x=0.7, y=diferencia, label=paste("Diferencia =",round(diferencia,2))), size=3, color="blue")+
+  geom_hline(aes(yintercept=0, linetype="dashed", color="red")) +
+  guides(fill=F) +
+  theme(legend.position = "none") +
+  xlab(paste("p-valor=",round(ttt1$pv,2))) + ylab("")
+
+
+gcombinados <- g1 + g2 + g3 +
+  plot_layout(ncol = 3, 
+              nrow = 1,
+             # widths = c(1, 1), 
+             # heights = c(3,3)
+              ) +
+                plot_annotation(title = "Chequeo de aleatorización edad (respecto al grupo de control)",
+                                caption = "Fuente: elaboración propia")
+
+```
+
+```{r, echo=FALSE, fig.align='center', fig.width=8, fig.height=3.5}
+tt1
+tt2
+tt3
+gcombinados
+rm(a,b, c, tt1, tt2, tt3, ttt1, ttt2, ttt3, g1, g2, g3, gcombinados)
+```
+
+**Chequeo de aleatorización, educacion**
+```{r, include=FALSE}
+educacion <- base %>% 
+    mutate(educacion = case_when(educacion == "Primaria" ~ "Bach_menos",
+                                 educacion == "Secundaria" ~ "Bach_menos",
+                                 educacion == "Preparatoria/bachillerato" ~ "Bach_menos",
+                                 educacion == "Licenciatura" ~ "Licenciatura",
+                                 educacion == "Posgrado" ~ "Posgrado"))
+
+#Bachillerato
+bach <- educacion %>% 
+  mutate(educacion = case_when(educacion != "Bach_menos" ~ "Otro",
+                               educacion == "Bach_menos" ~ "Bach_menos"))
+
+table(bach$Tratamiento, bach$educacion)
+ptbach1 <- prop.test(x=c(48,60),n=c(134,140)) 
+ptbach2 <- prop.test(x=c(46,60),n=c(138,140))
+ptbach3 <- prop.test(x=c(56,60),n=c(140,140))
+
+tptbach1 <- tibble(estimacion="Control - Escándalo",
+               diferencia = ptbach1$estimate[1]-ptbach1$estimate[2],
+               li=ptbach1$conf.int[1],
+               ls=ptbach1$conf.int[2],
+               pv=ptbach1$p.value)
+
+
+tptbach2 <- tibble(estimacion="Control - Congruencia",
+               diferencia = ptbach2$estimate[1]-ptbach2$estimate[2],
+               li=ptbach2$conf.int[1],
+               ls=ptbach2$conf.int[2],
+               pv=ptbach2$p.value)
+
+
+tptbach3 <- tibble(estimacion="Control - Incongruencia",
+               diferencia = ptbach3$estimate[1]-ptbach3$estimate[2],
+               li=ptbach3$conf.int[1],
+               ls=ptbach3$conf.int[2],
+               pv=ptbach3$p.value)
+
+gbach1 <- tptbach1 %>% 
+  ggplot(aes(x=estimacion, y=diferencia)) +
+  geom_point(color="blue")+
+  geom_errorbar(aes(ymin=li, ymax=ls), width = .3) +
+  geom_text(aes(x=0.7, y=diferencia, label=paste("Diferencia =",round(diferencia,2))), size=3, color="blue")+
+  geom_hline(aes(yintercept=0, linetype="dashed", color="red")) +
+  guides(fill=F) +
+  theme(legend.position = "none") +
+  xlab(paste("p-valor=",round(tptbach1$pv,2))) + ylab("")
+
+gbach2 <- tptbach2 %>% 
+  ggplot(aes(x=estimacion, y=diferencia)) +
+  geom_point(color="blue")+
+  geom_errorbar(aes(ymin=li, ymax=ls), width = .3) +
+  geom_text(aes(x=0.7, y=diferencia, label=paste("Diferencia =",round(diferencia,2))), size=3, color="blue")+
+  geom_hline(aes(yintercept=0, linetype="dashed", color="red"))+
+  guides(fill=F) +
+  theme(legend.position = "none") +
+  xlab(paste("p-valor=",round(tptbach2$pv,2))) + ylab("")
+
+gbach3 <- tptbach3 %>% 
+  ggplot(aes(x=estimacion, y=diferencia)) +
+  geom_point(color="blue")+
+  geom_errorbar(aes(ymin=li, ymax=ls), width = .3) +
+  geom_text(aes(x=0.7, y=diferencia, label=paste("Diferencia =",round(diferencia,2))), size=3, color="blue")+
+  geom_hline(aes(yintercept=0, linetype="dashed", color="red"))+
+  guides(fill=F) +
+  theme(legend.position = "none") +
+  xlab(paste("p-valor=",round(tptbach3$pv,2))) + ylab("")
+
+
+gbachcombinados <- gbach1 + gbach2 + gbach3 +
+  plot_layout(ncol = 3, 
+              nrow = 1,
+             # widths = c(1, 1), 
+             # heights = c(3,3)
+              ) +
+                plot_annotation(title = "Chequeo de aleatorización, bachillerato (respecto al grupo de control)",
+                                caption = "Fuente: elaboración propia")
+
+
+#Licenciatura
+lic <- educacion %>% 
+  mutate(educacion = case_when(educacion != "Licenciatura" ~ "Otro",
+                               educacion == "Licenciatura" ~ "Licenciatura"))
+
+table(lic$Tratamiento, lic$educacion)
+ptlic1 <- prop.test(x=c(58,56),n=c(134,140)) 
+ptlic2 <- prop.test(x=c(71,56),n=c(138,140))
+ptlic3 <- prop.test(x=c(55,56),n=c(140,140))
+
+tptlic1 <- tibble(estimacion="Control - Escándalo",
+               diferencia = ptlic1$estimate[1]-ptlic1$estimate[2],
+               li=ptlic1$conf.int[1],
+               ls=ptlic1$conf.int[2],
+               pv=ptlic1$p.value)
+
+
+tptlic2 <- tibble(estimacion="Control - Congruencia",
+               diferencia = ptlic2$estimate[1]-ptlic2$estimate[2],
+               li=ptlic2$conf.int[1],
+               ls=ptlic2$conf.int[2],
+               pv=ptlic2$p.value)
+
+
+tptlic3 <- tibble(estimacion="Control - Incongruencia",
+               diferencia = ptlic3$estimate[1]-ptlic3$estimate[2],
+               li=ptlic3$conf.int[1],
+               ls=ptlic3$conf.int[2],
+               pv=ptlic3$p.value)
+
+glic1 <- tptlic1 %>% 
+  ggplot(aes(x=estimacion, y=diferencia)) +
+  geom_point(color="blue")+
+  geom_errorbar(aes(ymin=li, ymax=ls), width = .3) +
+  geom_text(aes(x=0.7, y=diferencia, label=paste("Diferencia =",round(diferencia,2))), size=3, color="blue")+
+  geom_hline(aes(yintercept=0, linetype="dashed", color="red")) +
+  guides(fill=F) +
+  theme(legend.position = "none") +
+  xlab(paste("p-valor=",round(tptlic1$pv,2))) + ylab("")
+
+glic2 <- tptlic2 %>% 
+  ggplot(aes(x=estimacion, y=diferencia)) +
+  geom_point(color="blue")+
+  geom_errorbar(aes(ymin=li, ymax=ls), width = .3) +
+  geom_text(aes(x=0.7, y=diferencia, label=paste("Diferencia =",round(diferencia,2))), size=3, color="blue")+
+  geom_hline(aes(yintercept=0, linetype="dashed", color="red"))+
+  guides(fill=F) +
+  theme(legend.position = "none") +
+  xlab(paste("p-valor=",round(tptlic2$pv,2))) + ylab("")
+
+glic3 <- tptlic3 %>% 
+  ggplot(aes(x=estimacion, y=diferencia)) +
+  geom_point(color="blue")+
+  geom_errorbar(aes(ymin=li, ymax=ls), width = .3) +
+  geom_text(aes(x=0.7, y=diferencia, label=paste("Diferencia =",round(diferencia,2))), size=3, color="blue")+
+  geom_hline(aes(yintercept=0, linetype="dashed", color="red"))+
+  guides(fill=F) +
+  theme(legend.position = "none") +
+  xlab(paste("p-valor=",round(tptlic3$pv,2))) + ylab("")
+
+
+gliccombinados <- glic1 + glic2 + glic3 +
+  plot_layout(ncol = 3, 
+              nrow = 1,
+             # widths = c(1, 1), 
+             # heights = c(3,3)
+              ) +
+                plot_annotation(title = "Chequeo de aleatorización, licenciatura (respecto al grupo de control)",
+                                caption = "Fuente: elaboración propia")
+
+
+
+#Posgrado
+pos <- educacion %>% 
+  mutate(educacion = case_when(educacion != "Posgrado" ~ "Otro",
+                               educacion == "Posgrado" ~ "Posgrado"))
+
+table(pos$Tratamiento, pos$educacion)
+ptpos1 <- prop.test(x=c(28,24),n=c(134,140)) 
+ptpos2 <- prop.test(x=c(21,24),n=c(138,140))
+ptpos3 <- prop.test(x=c(29,24),n=c(140,140))
+
+
+tptpos1 <- tibble(estimacion="Control - Escándalo",
+               diferencia = ptpos1$estimate[1]-ptpos1$estimate[2],
+               li=ptpos1$conf.int[1],
+               ls=ptpos1$conf.int[2],
+               pv=ptpos1$p.value)
+
+
+tptpos2 <- tibble(estimacion="Control - Congruencia",
+               diferencia = ptpos2$estimate[1]-ptpos2$estimate[2],
+               li=ptpos2$conf.int[1],
+               ls=ptpos2$conf.int[2],
+               pv=ptpos2$p.value)
+
+
+tptpos3 <- tibble(estimacion="Control - Incongruencia",
+               diferencia = ptpos3$estimate[1]-ptpos3$estimate[2],
+               li=ptpos3$conf.int[1],
+               ls=ptpos3$conf.int[2],
+               pv=ptpos3$p.value)
+
+gpos1 <- tptpos1 %>% 
+  ggplot(aes(x=estimacion, y=diferencia)) +
+  geom_point(color="blue")+
+  geom_errorbar(aes(ymin=li, ymax=ls), width = .3) +
+  geom_text(aes(x=0.7, y=diferencia, label=paste("Diferencia =",round(diferencia,2))), size=3, color="blue")+
+  geom_hline(aes(yintercept=0, linetype="dashed", color="red")) +
+  guides(fill=F) +
+  theme(legend.position = "none") +
+  xlab(paste("p-valor=",round(tptpos1$pv,2))) + ylab("")
+
+gpos2 <- tptpos2 %>% 
+  ggplot(aes(x=estimacion, y=diferencia)) +
+  geom_point(color="blue")+
+  geom_errorbar(aes(ymin=li, ymax=ls), width = .3) +
+  geom_text(aes(x=0.7, y=diferencia, label=paste("Diferencia =",round(diferencia,2))), size=3, color="blue")+
+  geom_hline(aes(yintercept=0, linetype="dashed", color="red"))+
+  guides(fill=F) +
+  theme(legend.position = "none") +
+  xlab(paste("p-valor=",round(tptpos2$pv,2))) + ylab("")
+
+gpos3 <- tptpos3 %>% 
+  ggplot(aes(x=estimacion, y=diferencia)) +
+  geom_point(color="blue")+
+  geom_errorbar(aes(ymin=li, ymax=ls), width = .3) +
+  geom_text(aes(x=0.7, y=diferencia, label=paste("Diferencia =",round(diferencia,2))), size=3, color="blue")+
+  geom_hline(aes(yintercept=0, linetype="dashed", color="red"))+
+  guides(fill=F) +
+  theme(legend.position = "none") +
+  xlab(paste("p-valor=",round(tptpos3$pv,2))) + ylab("")
+
+
+gposcombinados <- gpos1 + gpos2 + gpos3 +
+  plot_layout(ncol = 3, 
+              nrow = 1,
+             # widths = c(1, 1), 
+             # heights = c(3,3)
+              ) +
+                plot_annotation(title = "Chequeo de aleatorización, posgrado (respecto al grupo de control)",
+                                caption = "Fuente: elaboración propia")
+
+
+```
+
+Gente con bachillerato o menos
+```{r, echo=FALSE, fig.align='center', fig.width=8, fig.height=3.5}
+zbach <- tibble(Tratamientos=c("Escándalo", "Congruencia", "Incongruencia"),
+            "Chi^2" = c(1.14, 2.28, 0.13),
+            pvalor=c("0.2856", "0.1308", "0.7159")) 
+
+zbach %>% 
+  gt()%>% 
+  tab_header(title = md("Chequeo de aleatorización, bachillerato (prueba de Chi^2")) %>% 
+  tab_footnote(footnote = md("Fuente: elaboración propia"))
+
+gbachcombinados
+```
+
+Gente con licenciatura
+```{r, echo=FALSE, fig.align='center', fig.width=8, fig.height=3.5}
+zlic <- tibble(Tratamiento=c("Escándalo", "Congruencia", "Incongruencia"),
+            "Chi^2" = c(0.18, 3.22, "4.7798e-30"),
+            pvalor=c(0.6682, 0.07255, 1)) 
+
+zlic %>% 
+  gt()%>% 
+  tab_header(title = md("Chequeo de aleatorización, licenciatura (prueba de Chi^2")) %>% 
+  tab_footnote(footnote = md("Fuente: elaboración propia"))
+
+gliccombinados
+```
+
+Gente con posgrado
+```{r, echo=FALSE, fig.align='center', fig.width=8, fig.height=3.5}
+
+zpos <- tibble(Tratamientos=c("Escándalo", "Congruencia", "Incongruencia"),
+            "Chi^2" = c(0.40, 0.07, 0.37),
+            pvalor=c(0.5236, 0.7849, 0.5417)) 
+
+zpos %>% 
+  gt()%>% 
+  tab_header(title = md("Chequeo de aleatorización, posgrado (prueba de Chi^2")) %>% 
+  tab_footnote(footnote = md("Fuente: elaboración propia"))
+
+gposcombinados
+
+rm(educacion, bach, lic, pos, ptbach1, ptbach2, ptbach3, ptlic1, ptlic2, ptlic3, ptpos1, ptpos2, ptpos3, gbachcombinados, gliccombinados, gposcombinados, gbach1, gbach2, gbach3, glic1, glic2, glic3, gpos1, gpos2, gpos3, zbach, zlic, zpos)
+```
+
+**Chequeo de aleatorización, identificación partidista**
+```{r, include=FALSE}
+morena <- base %>% 
+  mutate(idpartido = case_when(idpartido != "MORENA" ~ "Otro",
+                               idpartido == "MORENA" ~ "MORENA"))
+
+table(morena$Tratamiento, morena$idpartido)
+
+ptmor1 <- prop.test(x=c(38,40),n=c(136,140)) 
+ptmor2 <- prop.test(x=c(44,40),n=c(137,140))
+ptmor3 <- prop.test(x=c(39,40),n=c(140,140))
+
+tptmor1 <- tibble(estimacion="Control - Escándalo",
+               diferencia = ptmor1$estimate[1]-ptmor1$estimate[2],
+               li=ptmor1$conf.int[1],
+               ls=ptmor1$conf.int[2],
+               pv=ptmor1$p.value)
+
+
+tptmor2 <- tibble(estimacion="Control - Congruencia",
+               diferencia = ptmor2$estimate[1]-ptmor2$estimate[2],
+               li=ptmor2$conf.int[1],
+               ls=ptmor2$conf.int[2],
+               pv=ptmor2$p.value)
+
+
+tptmor3 <- tibble(estimacion="Control - Incongruencia",
+               diferencia = ptmor3$estimate[1]-ptmor3$estimate[2],
+               li=ptmor3$conf.int[1],
+               ls=ptmor3$conf.int[2],
+               pv=ptmor3$p.value)
+
+gmor1 <- tptmor1 %>% 
+  ggplot(aes(x=estimacion, y=diferencia)) +
+  geom_point(color="blue")+
+  geom_errorbar(aes(ymin=li, ymax=ls), width = .3) +
+  geom_text(aes(x=0.7, y=diferencia, label=paste("Diferencia =",round(diferencia,2))), size=3, color="blue")+
+  geom_hline(aes(yintercept=0, linetype="dashed", color="red")) +
+  guides(fill=F) +
+  theme(legend.position = "none") +
+  xlab(paste("p-valor=",round(tptmor1$pv,2))) + ylab("")
+
+gmor2 <- tptmor2 %>% 
+  ggplot(aes(x=estimacion, y=diferencia)) +
+  geom_point(color="blue")+
+  geom_errorbar(aes(ymin=li, ymax=ls), width = .3) +
+  geom_text(aes(x=0.7, y=diferencia, label=paste("Diferencia =",round(diferencia,2))), size=3, color="blue")+
+  geom_hline(aes(yintercept=0, linetype="dashed", color="red"))+
+  guides(fill=F) +
+  theme(legend.position = "none") +
+  xlab(paste("p-valor=",round(tptmor2$pv,2))) + ylab("")
+
+gmor3 <- tptmor3 %>% 
+  ggplot(aes(x=estimacion, y=diferencia)) +
+  geom_point(color="blue")+
+  geom_errorbar(aes(ymin=li, ymax=ls), width = .3) +
+  geom_text(aes(x=0.7, y=diferencia, label=paste("Diferencia =",round(diferencia,2))), size=3, color="blue")+
+  geom_hline(aes(yintercept=0, linetype="dashed", color="red"))+
+  guides(fill=F) +
+  theme(legend.position = "none") +
+  xlab(paste("p-valor=",round(tptmor3$pv,2))) + ylab("")
+
+
+gmorcombinados <- gmor1 + gmor2 + gmor3 +
+  plot_layout(ncol = 3, 
+              nrow = 1,
+             # widths = c(1, 1), 
+             # heights = c(3,3)
+              ) +
+                plot_annotation(title = "Chequeo de aleatorización, id=MORENA (respecto al grupo de control)",
+                                caption = "Fuente: elaboración propia")
+
+
+
+
+pan <- base %>% 
+  mutate(idpartido = case_when(idpartido != "Partido Acción Nacional (PAN)" ~ "Otro",
+                               idpartido == "Partido Acción Nacional (PAN)" ~ "PAN"))
+
+table(pan$Tratamiento, pan$idpartido)
+ptpan1 <- prop.test(x=c(23,20),n=c(136,140)) 
+ptpan2 <- prop.test(x=c(16,20),n=c(137,140))
+ptpan3 <- prop.test(x=c(23,20),n=c(140,140))
+
+
+tptpan1 <- tibble(estimacion="Control - Escándalo",
+               diferencia = ptpan1$estimate[1]-ptpan1$estimate[2],
+               li=ptpan1$conf.int[1],
+               ls=ptpan1$conf.int[2],
+               pv=ptpan1$p.value)
+
+
+tptpan2 <- tibble(estimacion="Control - Congruencia",
+               diferencia = ptpan2$estimate[1]-ptpan2$estimate[2],
+               li=ptpan2$conf.int[1],
+               ls=ptpan2$conf.int[2],
+               pv=ptpan2$p.value)
+
+
+tptpan3 <- tibble(estimacion="Control - Incongruencia",
+               diferencia = ptpan3$estimate[1]-ptpan3$estimate[2],
+               li=ptpan3$conf.int[1],
+               ls=ptpan3$conf.int[2],
+               pv=ptpan3$p.value)
+
+gpan1 <- tptpan1 %>% 
+  ggplot(aes(x=estimacion, y=diferencia)) +
+  geom_point(color="blue")+
+  geom_errorbar(aes(ymin=li, ymax=ls), width = .3) +
+  geom_text(aes(x=0.7, y=diferencia, label=paste("Diferencia =",round(diferencia,2))), size=3, color="blue")+
+  geom_hline(aes(yintercept=0, linetype="dashed", color="red")) +
+  guides(fill=F) +
+  theme(legend.position = "none") +
+  xlab(paste("p-valor=",round(tptpan1$pv,2))) + ylab("")
+
+gpan2 <- tptpan2 %>% 
+  ggplot(aes(x=estimacion, y=diferencia)) +
+  geom_point(color="blue")+
+  geom_errorbar(aes(ymin=li, ymax=ls), width = .3) +
+  geom_text(aes(x=0.7, y=diferencia, label=paste("Diferencia =",round(diferencia,2))), size=3, color="blue")+
+  geom_hline(aes(yintercept=0, linetype="dashed", color="red"))+
+  guides(fill=F) +
+  theme(legend.position = "none") +
+  xlab(paste("p-valor=",round(tptpan2$pv,2))) + ylab("")
+
+gpan3 <- tptpan3 %>% 
+  ggplot(aes(x=estimacion, y=diferencia)) +
+  geom_point(color="blue")+
+  geom_errorbar(aes(ymin=li, ymax=ls), width = .3) +
+  geom_text(aes(x=0.7, y=diferencia, label=paste("Diferencia =",round(diferencia,2))), size=3, color="blue")+
+  geom_hline(aes(yintercept=0, linetype="dashed", color="red"))+
+  guides(fill=F) +
+  theme(legend.position = "none") +
+  xlab(paste("p-valor=",round(tptpan3$pv,2))) + ylab("")
+
+
+gpancombinados <- gpan1 + gpan2 + gpan3 +
+  plot_layout(ncol = 3, 
+              nrow = 1,
+             # widths = c(1, 1), 
+             # heights = c(3,3)
+              ) +
+                plot_annotation(title = "Chequeo de aleatorización, id=PAN (respecto al grupo de control)",
+                                caption = "Fuente: elaboración propia")
+
+
+#Ninguno
+ninguno <- base %>% 
+  mutate(idpartido = case_when(idpartido != "Ninguno" ~ "Otro",
+                               idpartido == "Ninguno" ~ "Ninguno"))
+
+table(ninguno$Tratamiento, ninguno$idpartido)
+ptn1 <- prop.test(x=c(51,48),n=c(136,140)) 
+ptn2 <- prop.test(x=c(43,48),n=c(137,140))
+ptn3 <- prop.test(x=c(57,48),n=c(140,140))
+
+tptnone1 <- tibble(estimacion="Control - Escándalo",
+               diferencia = ptn1$estimate[1]-ptn1$estimate[2],
+               li=ptn1$conf.int[1],
+               ls=ptn1$conf.int[2],
+               pv=ptn1$p.value)
+
+
+tptnone2 <- tibble(estimacion="Control - Congruencia",
+               diferencia = ptn2$estimate[1]-ptn2$estimate[2],
+               li=ptn2$conf.int[1],
+               ls=ptn2$conf.int[2],
+               pv=ptn2$p.value)
+
+
+tptnone3 <- tibble(estimacion="Control - Incongruencia",
+               diferencia = ptn3$estimate[1]-ptn3$estimate[2],
+               li=ptn3$conf.int[1],
+               ls=ptn3$conf.int[2],
+               pv=ptn3$p.value)
+
+gnone1 <- tptnone1 %>% 
+  ggplot(aes(x=estimacion, y=diferencia)) +
+  geom_point(color="blue")+
+  geom_errorbar(aes(ymin=li, ymax=ls), width = .3) +
+  geom_text(aes(x=0.7, y=diferencia, label=paste("Diferencia =",round(diferencia,2))), size=3, color="blue")+
+  geom_hline(aes(yintercept=0, linetype="dashed", color="red")) +
+  guides(fill=F) +
+  theme(legend.position = "none") +
+  xlab(paste("p-valor=",round(tptnone1$pv,2))) + ylab("")
+
+gnone2 <- tptnone2 %>% 
+  ggplot(aes(x=estimacion, y=diferencia)) +
+  geom_point(color="blue")+
+  geom_errorbar(aes(ymin=li, ymax=ls), width = .3) +
+  geom_text(aes(x=0.7, y=diferencia, label=paste("Diferencia =",round(diferencia,2))), size=3, color="blue")+
+  geom_hline(aes(yintercept=0, linetype="dashed", color="red"))+
+  guides(fill=F) +
+  theme(legend.position = "none") +
+  xlab(paste("p-valor=",round(tptnone2$pv,2))) + ylab("")
+
+gnone3 <- tptnone3 %>% 
+  ggplot(aes(x=estimacion, y=diferencia)) +
+  geom_point(color="blue")+
+  geom_errorbar(aes(ymin=li, ymax=ls), width = .3) +
+  geom_text(aes(x=0.7, y=diferencia, label=paste("Diferencia =",round(diferencia,2))), size=3, color="blue")+
+  geom_hline(aes(yintercept=0, linetype="dashed", color="red"))+
+  guides(fill=F) +
+  theme(legend.position = "none") +
+  xlab(paste("p-valor=",round(tptnone3$pv,2))) + ylab("")
+
+
+gnonecombinados <- gnone1 + gnone2 + gnone3 +
+  plot_layout(ncol = 3, 
+              nrow = 1,
+             # widths = c(1, 1), 
+             # heights = c(3,3)
+              ) +
+                plot_annotation(title = "Chequeo de aleatorización, id=Ninguno (respecto al grupo de control)",
+                                caption = "Fuente: elaboración propia")
+
+
+
+#MC
+mc <- base %>% 
+  mutate(idpartido = case_when(idpartido != "Movimiento Ciudadano (MC)" ~ "Otro",
+                               idpartido == "Movimiento Ciudadano (MC)" ~ "MC"))
+
+table(mc$Tratamiento, mc$idpartido)
+ptmc1 <- prop.test(x=c(13,19),n=c(136,140)) 
+ptmc2 <- prop.test(x=c(22,19),n=c(137,140))
+ptmc3 <- prop.test(x=c(14,19),n=c(140,140))
+
+tptmc1 <- tibble(estimacion="Control - Escándalo",
+               diferencia = ptmc1$estimate[1]-ptmc1$estimate[2],
+               li=ptmc1$conf.int[1],
+               ls=ptmc1$conf.int[2],
+               pv=ptmc1$p.value)
+
+
+tptmc2 <- tibble(estimacion="Control - Congruencia",
+               diferencia = ptmc2$estimate[1]-ptmc2$estimate[2],
+               li=ptmc2$conf.int[1],
+               ls=ptmc2$conf.int[2],
+               pv=ptmc2$p.value)
+
+
+tptmc3 <- tibble(estimacion="Control - Incongruencia",
+               diferencia = ptmc3$estimate[1]-ptmc3$estimate[2],
+               li=ptmc3$conf.int[1],
+               ls=ptmc3$conf.int[2],
+               pv=ptmc3$p.value)
+
+gmc1 <- tptmc1 %>% 
+  ggplot(aes(x=estimacion, y=diferencia)) +
+  geom_point(color="blue")+
+  geom_errorbar(aes(ymin=li, ymax=ls), width = .3) +
+  geom_text(aes(x=0.7, y=diferencia, label=paste("Diferencia =",round(diferencia,2))), size=3, color="blue")+
+  geom_hline(aes(yintercept=0, linetype="dashed", color="red")) +
+  guides(fill=F) +
+  theme(legend.position = "none") +
+  xlab(paste("p-valor=",round(tptmc1$pv,2))) + ylab("")
+
+gmc2 <- tptmc2 %>% 
+  ggplot(aes(x=estimacion, y=diferencia)) +
+  geom_point(color="blue")+
+  geom_errorbar(aes(ymin=li, ymax=ls), width = .3) +
+  geom_text(aes(x=0.7, y=diferencia, label=paste("Diferencia =",round(diferencia,2))), size=3, color="blue")+
+  geom_hline(aes(yintercept=0, linetype="dashed", color="red"))+
+  guides(fill=F) +
+  theme(legend.position = "none") +
+  xlab(paste("p-valor=",round(tptmc2$pv,2))) + ylab("")
+
+gmc3 <- tptmc3 %>% 
+  ggplot(aes(x=estimacion, y=diferencia)) +
+  geom_point(color="blue")+
+  geom_errorbar(aes(ymin=li, ymax=ls), width = .3) +
+  geom_text(aes(x=0.7, y=diferencia, label=paste("Diferencia =",round(diferencia,2))), size=3, color="blue")+
+  geom_hline(aes(yintercept=0, linetype="dashed", color="red"))+
+  guides(fill=F) +
+  theme(legend.position = "none") +
+  xlab(paste("p-valor=",round(tptmc3$pv,2))) + ylab("")
+
+
+gmccombinados <- gmc1 + gmc2 + gmc3 +
+  plot_layout(ncol = 3, 
+              nrow = 1,
+             # widths = c(1, 1), 
+             # heights = c(3,3)
+              ) +
+                plot_annotation(title = "Chequeo de aleatorización, id=MC (respecto al grupo de control)",
+                                caption = "Fuente: elaboración propia")
+
+
+
+#Otros
+otros <- base %>% 
+  mutate(idpartido = case_when(idpartido == "Otro" ~ "Otro",
+                               idpartido == "Partido Verde (PV)" ~ "Otro",
+                               idpartido == "Partido de la Revolución Democrática (PRD)" ~"Otro",
+                               idpartido == "Partido del Trabajo (PT)" ~ "Otro",
+                               idpartido == "Partido Revolucionario Institucional (PRI)" ~ "Otro",
+                               idpartido != "Otro" ~ "Otros"))
+
+table(otros$Tratamiento, otros$idpartido)
+ptotro1 <- prop.test(x=c(11,13),n=c(136,140)) 
+ptotro2 <- prop.test(x=c(12,13),n=c(137,140))
+ptotro3 <- prop.test(x=c(7,13),n=c(140,140))
+
+
+tptotro1 <- tibble(estimacion="Control - Escándalo",
+               diferencia = ptotro1$estimate[1]-ptotro1$estimate[2],
+               li=ptotro1$conf.int[1],
+               ls=ptotro1$conf.int[2],
+               pv=ptotro1$p.value)
+
+
+tptotro2 <- tibble(estimacion="Control - Congruencia",
+               diferencia = ptotro2$estimate[1]-ptotro2$estimate[2],
+               li=ptotro2$conf.int[1],
+               ls=ptotro2$conf.int[2],
+               pv=ptotro2$p.value)
+
+
+tptotro3 <- tibble(estimacion="Control - Incongruencia",
+               diferencia = ptotro3$estimate[1]-ptotro3$estimate[2],
+               li=ptotro3$conf.int[1],
+               ls=ptotro3$conf.int[2],
+               pv=ptotro3$p.value)
+
+gotro1 <- tptotro1 %>% 
+  ggplot(aes(x=estimacion, y=diferencia)) +
+  geom_point(color="blue")+
+  geom_errorbar(aes(ymin=li, ymax=ls), width = .3) +
+  geom_text(aes(x=0.7, y=diferencia, label=paste("Diferencia =",round(diferencia,2))), size=3, color="blue")+
+  geom_hline(aes(yintercept=0, linetype="dashed", color="red")) +
+  guides(fill=F) +
+  theme(legend.position = "none") +
+  xlab(paste("p-valor=",round(tptotro1$pv,2))) + ylab("")
+
+gotro2 <- tptotro2 %>% 
+  ggplot(aes(x=estimacion, y=diferencia)) +
+  geom_point(color="blue")+
+  geom_errorbar(aes(ymin=li, ymax=ls), width = .3) +
+  geom_text(aes(x=0.7, y=diferencia, label=paste("Diferencia =",round(diferencia,2))), size=3, color="blue")+
+  geom_hline(aes(yintercept=0, linetype="dashed", color="red"))+
+  guides(fill=F) +
+  theme(legend.position = "none") +
+  xlab(paste("p-valor=",round(tptotro2$pv,2))) + ylab("")
+
+gotro3 <- tptotro3 %>% 
+  ggplot(aes(x=estimacion, y=diferencia)) +
+  geom_point(color="blue")+
+  geom_errorbar(aes(ymin=li, ymax=ls), width = .3) +
+  geom_text(aes(x=0.7, y=diferencia, label=paste("Diferencia =",round(diferencia,2))), size=3, color="blue")+
+  geom_hline(aes(yintercept=0, linetype="dashed", color="red"))+
+  guides(fill=F) +
+  theme(legend.position = "none") +
+  xlab(paste("p-valor=",round(tptotro3$pv,2))) + ylab("")
+
+
+gotroscombinados <- gotro1 + gotro2 + gotro3 +
+  plot_layout(ncol = 3, 
+              nrow = 1,
+             # widths = c(1, 1), 
+             # heights = c(3,3)
+              ) +
+                plot_annotation(title = "Chequeo de aleatorización, id=Otros (respecto al grupo de control)",
+                                caption = "Fuente: elaboración propia")
+
+```
+
+Gente que se identifica con MORENA, comparación de los tres grupos de tratamiento con el control
+```{r, echo=FALSE, fig.align='center', fig.width=8, fig.height=3.5}
+
+zmor <- tibble(Tratamientos=c("Escándalo", "Congruencia", "Incongruencia"),
+            "Chi^2" = c("1.8858e-30", 0.26, "2.2256e-31"),
+            pvalor=c(1, 0.6093, 1)) 
+
+zmor %>% 
+  gt()%>% 
+  tab_header(title = md("Chequeo de aleatorización, id=MORENA (prueba de Chi^2")) %>% 
+  tab_footnote(footnote = md("Fuente: elaboración propia"))
+
+gmorcombinados
+```
+
+Gente que se identifica con el PAN, comparación de los tres grupos de tratamiento con el control
+```{r, echo=FALSE, fig.align='center', fig.width=8, fig.height=3.5}
+
+zpan <- tibble(Tratamientos=c("Escándalo", "Congruencia", "Incongruencia"),
+            "Chi^2" = c(0.19, 0.22, 0.10),
+            pvalor=c(0.6633, 0.6409, 0.7403)) 
+
+zpan %>% 
+  gt()%>% 
+  tab_header(title = md("Chequeo de aleatorización, id=PAN (prueba de Chi^2")) %>% 
+  tab_footnote(footnote = md("Fuente: elaboración propia"))
+
+gpancombinados
+```
+
+Gente que se identifica con MC, comparación de los tres grupos de tratamiento con el control
+```{r, echo=FALSE, fig.align='center', fig.width=8, fig.height=3.5}
+
+zmc <- tibble(Tratamientos=c("Escándalo", "Congruencia", "Incongruencia"),
+            "Chi^2" = c(0.73, 0.17, 0.55),
+            pvalor=c(0.3937, 0.6792, 0.4585)) 
+
+zmc %>% 
+  gt()%>% 
+  tab_header(title = md("Chequeo de aleatorización, id=MC (prueba de Chi^2")) %>% 
+  tab_footnote(footnote = md("Fuente: elaboración propia"))
+
+gmccombinados
+```
+
+Gente que no se identifica con los partidos políticos, comparación de los tres grupos de tratamiento con el control
+```{r, echo=FALSE, fig.align='center', fig.width=8, fig.height=3.5}
+znone <- tibble(Tratamientos=c("Escándalo", "Congruencia", "Incongruencia"),
+            "Chi^2" = c(0.18, 0.15, 0.97),
+            pvalor=c(0.6664, 0.6998, 0.3234)) 
+
+znone %>% 
+  gt()%>% 
+  tab_header(title = md("Chequeo de aleatorización, id=Ninguno (prueba de Chi^2")) %>% 
+  tab_footnote(footnote = md("Fuente: elaboración propia"))
+
+gnonecombinados
+```
+
+Gente que se identifica con otros partidos, comparación de los tres grupos de tratamiento con el control
+```{r, echo=FALSE, fig.align='center', fig.width=8, fig.height=3.5}
+
+zotro <- tibble(Tratamientos=c("Escándalo", "Congruencia", "Incongruencia"),
+            "Chi^2" = c(0.019, "1.099e-30", 1.34),
+            pvalor=c(0.8892, 1, 0.246)) 
+
+zotro %>% 
+  gt()%>% 
+  tab_header(title = md("Chequeo de aleatorización, id=Otro (prueba de Chi^2")) %>% 
+  tab_footnote(footnote = md("Fuente: elaboración propia"))
+
+gotroscombinados
+
+rm(morena, pan, mc, ninguno, otros, ptmc1, ptmc2, ptmc3, ptn1, ptn2, ptn3, ptotro1, ptotro2, ptotro3, ptpan1, ptpan2, ptpan3, gmorcombinados, gmor1, gmor2, gmor3, gpancombinados, gpan1, gpan2, gpan3, gmccombinados, gmc1, gmc2, gmc3, gotroscombinados, gotro1, gotro2, gotro3, gnonecombinados, gnone1, gnone2, gnone3, zmor, zpan, zmc, zotro, znone)
+```
+
+**Chequeo de aleatorización, conocimiento de FSM**
+```{r, include=FALSE}
+table(base$Tratamiento, base$FSMconoce)
+
+ptFSM1 <- prop.test(x=c(59,67),n=c(136,140))
+ptFSM2 <- prop.test(x=c(63,67),n=c(137,140))
+ptFSM3 <- prop.test(x=c(63,67),n=c(140,140))
+
+tptFSM1 <- tibble(estimacion="Control - Escándalo",
+               diferencia = ptFSM1$estimate[1]-ptFSM1$estimate[2],
+               li=ptFSM1$conf.int[1],
+               ls=ptFSM1$conf.int[2],
+               pv=ptFSM1$p.value)
+
+
+tptFSM2 <- tibble(estimacion="Control - Congruencia",
+               diferencia = ptFSM2$estimate[1]-ptFSM2$estimate[2],
+               li=ptFSM2$conf.int[1],
+               ls=ptFSM2$conf.int[2],
+               pv=ptFSM2$p.value)
+
+
+tptFSM3 <- tibble(estimacion="Control - Incongruencia",
+               diferencia = ptFSM3$estimate[1]-ptFSM3$estimate[2],
+               li=ptFSM3$conf.int[1],
+               ls=ptFSM3$conf.int[2],
+               pv=ptFSM3$p.value)
+
+gFSM1 <- tptFSM1 %>% 
+  ggplot(aes(x=estimacion, y=diferencia)) +
+  geom_point(color="blue")+
+  geom_errorbar(aes(ymin=li, ymax=ls), width = .3) +
+  geom_text(aes(x=0.7, y=diferencia, label=paste("Diferencia =",round(diferencia,2))), size=3, color="blue")+
+  geom_hline(aes(yintercept=0, linetype="dashed", color="red")) +
+  guides(fill=F) +
+  theme(legend.position = "none") +
+  xlab(paste("p-valor=",round(tptFSM1$pv,2))) + ylab("")
+
+gFSM2 <- tptFSM2 %>% 
+  ggplot(aes(x=estimacion, y=diferencia)) +
+  geom_point(color="blue")+
+  geom_errorbar(aes(ymin=li, ymax=ls), width = .3) +
+  geom_text(aes(x=0.7, y=diferencia, label=paste("Diferencia =",round(diferencia,2))), size=3, color="blue")+
+  geom_hline(aes(yintercept=0, linetype="dashed", color="red"))+
+  guides(fill=F) +
+  theme(legend.position = "none") +
+  xlab(paste("p-valor=",round(tptFSM2$pv,2))) + ylab("")
+
+gFSM3 <- tptFSM3 %>% 
+  ggplot(aes(x=estimacion, y=diferencia)) +
+  geom_point(color="blue")+
+  geom_errorbar(aes(ymin=li, ymax=ls), width = .3) +
+  geom_text(aes(x=0.7, y=diferencia, label=paste("Diferencia =",round(diferencia,2))), size=3, color="blue")+
+  geom_hline(aes(yintercept=0, linetype="dashed", color="red"))+
+  guides(fill=F) +
+  theme(legend.position = "none") +
+  xlab(paste("p-valor=",round(tptFSM3$pv,2))) + ylab("")
+
+
+gFSMcombinados <- gFSM1 + gFSM2 + gFSM3 +
+  plot_layout(ncol = 3, 
+              nrow = 1,
+             # widths = c(1, 1), 
+             # heights = c(3,3)
+              ) +
+                plot_annotation(title = "Chequeo de aleatorización, FSM (respecto al grupo de control)",
+                                caption = "Fuente: elaboración propia")
+
+
+```
+
+```{r, echo=FALSE, fig.align='center', fig.width=8, fig.height=3.5}
+
+zFSM <- tibble(Tratamientos=c("Escándalo", "Congruencia", "Incongruencia"),
+            "Chi^2" = c(0.391, 0.036, 0.13),
+            pvalor=c(0.5318, 0.848, 0.7192)) 
+
+zFSM %>% 
+  gt()%>% 
+  tab_header(title = md("Chequeo de aleatorización, conoce a FSM (prueba de Chi^2")) %>% 
+  tab_footnote(footnote = md("Fuente: elaboración propia"))
+
+gFSMcombinados
+
+rm(ptFSM1, ptFSM2, ptFSM3, gFSMcombinados, gFSM1, gFSM2, gFSM3, tptFSM1, tptFSM2, tptFSM3, zFSM)
+```
+
+
+
+#/pagebreak Cáclculo del alfa de Cronbach y el alfa ordinal para la evaluación completa
+```{r, include=FALSE}
+ordinal <- base %>% 
+  select(confianza, representado, defensa, honestidad, gobernar, eval_MORENA_1) %>% 
+  mutate(confianza = case_when(confianza=="Muy en desacuerdo" ~ 1,
+                                         confianza=="En desacuerdo" ~ 2,
+                                         confianza=="Algo en desacuerdo" ~ 3,
+                                         confianza=="Ni de acuerdo ni en desacuerdo"~ 4,
+                                         confianza=="Algo de acuerdo" ~ 5,
+                                         confianza=="De acuerdo" ~ 6,
+                                         confianza=="Muy de acuerdo" ~ 7)) %>% 
+  mutate(representado = case_when(representado=="Muy en desacuerdo" ~ 1,
+                                         representado=="En desacuerdo" ~ 2,
+                                         representado=="Algo en desacuerdo" ~ 3,
+                                         representado=="Ni de acuerdo ni en desacuerdo"~ 4,
+                                         representado=="Algo de acuerdo" ~ 5,
+                                         representado=="De acuerdo" ~ 6,
+                                         representado=="Muy de acuerdo" ~ 7)) %>% 
+  mutate(defensa = case_when(defensa=="Muy en desacuerdo" ~ 1,
+                                         defensa=="En desacuerdo" ~ 2,
+                                         defensa=="Algo en desacuerdo" ~ 3,
+                                         defensa=="Ni de acuerdo ni en desacuerdo"~ 4,
+                                         defensa=="Algo de acuerdo" ~ 5,
+                                         defensa=="De acuerdo" ~ 6,
+                                         defensa=="Muy de acuerdo" ~ 7)) %>% 
+  mutate(honestidad = case_when(honestidad=="Muy en desacuerdo" ~ 1,
+                                         honestidad=="En desacuerdo" ~ 2,
+                                         honestidad=="Algo en desacuerdo" ~ 3,
+                                         honestidad=="Ni de acuerdo ni en desacuerdo"~ 4,
+                                         honestidad=="Algo de acuerdo" ~ 5,
+                                         honestidad=="De acuerdo" ~ 6,
+                                         honestidad=="Muy de acuerdo" ~ 7)) %>% 
+  mutate(gobernar = case_when(gobernar=="Muy en desacuerdo" ~ 1,
+                                         gobernar=="En desacuerdo" ~ 2,
+                                         gobernar=="Algo en desacuerdo" ~ 3,
+                                         gobernar=="Ni de acuerdo ni en desacuerdo"~ 4,
+                                         gobernar=="Algo de acuerdo" ~ 5,
+                                         gobernar=="De acuerdo" ~ 6,
+                                         gobernar=="Muy de acuerdo" ~ 7)) %>% 
+  mutate(eval_MORENA_1 = case_when(eval_MORENA_1=="Pésimo" ~ 1,
+                                         eval_MORENA_1=="Muy mal" ~ 2,
+                                         eval_MORENA_1=="Mal" ~ 3,
+                                         eval_MORENA_1=="Regular"~ 4,
+                                         eval_MORENA_1=="Bien" ~ 5,
+                                         eval_MORENA_1=="Muy bien" ~ 6,
+                                         eval_MORENA_1=="Excelente" ~ 7))
+
+attach(ordinal)
+aordinal <- data.frame(ordinal)
+class(aordinal)
+
+#Alfa ordinal
+poly2 <- polychoric(aordinal)
+alpha(poly2$rho)
+
+#Alfa de Cronbach
+alpha(aordinal)
+```
+
+#/pagebreak Diferencia de medias con evaluación agregada (las dos preguntas)
+Para hacer la diferencia de medias utilizo un índice conformado por la pregunta de la evaluación general al partido y por los cinco items de evaluación del partido: confianza, si se siente representado, honestidad, si lo defendería y si sabe gobernar. 
+```{r, include=FALSE}
+#Nueva base para hacer las pruebas de hipótesis
+
+evaluacion <- base %>% 
+  select(Tratamiento, confianza, representado, honestidad, defensa, gobernar, eval_MORENA_1) %>%   
+  mutate(confianza = case_when(confianza=="Muy en desacuerdo" ~ 1,
+                                         confianza=="En desacuerdo" ~ 2,
+                                         confianza=="Algo en desacuerdo" ~ 3,
+                                         confianza=="Ni de acuerdo ni en desacuerdo"~ 4,
+                                         confianza=="Algo de acuerdo" ~ 5,
+                                         confianza=="De acuerdo" ~ 6,
+                                         confianza=="Muy de acuerdo" ~ 7)) %>% 
+  mutate(representado = case_when(representado=="Muy en desacuerdo" ~ 1,
+                                         representado=="En desacuerdo" ~ 2,
+                                         representado=="Algo en desacuerdo" ~ 3,
+                                         representado=="Ni de acuerdo ni en desacuerdo"~ 4,
+                                         representado=="Algo de acuerdo" ~ 5,
+                                         representado=="De acuerdo" ~ 6,
+                                         representado=="Muy de acuerdo" ~ 7)) %>% 
+  mutate(defensa = case_when(defensa=="Muy en desacuerdo" ~ 1,
+                                         defensa=="En desacuerdo" ~ 2,
+                                         defensa=="Algo en desacuerdo" ~ 3,
+                                         defensa=="Ni de acuerdo ni en desacuerdo"~ 4,
+                                         defensa=="Algo de acuerdo" ~ 5,
+                                         defensa=="De acuerdo" ~ 6,
+                                         defensa=="Muy de acuerdo" ~ 7)) %>% 
+  mutate(honestidad = case_when(honestidad=="Muy en desacuerdo" ~ 1,
+                                         honestidad=="En desacuerdo" ~ 2,
+                                         honestidad=="Algo en desacuerdo" ~ 3,
+                                         honestidad=="Ni de acuerdo ni en desacuerdo"~ 4,
+                                         honestidad=="Algo de acuerdo" ~ 5,
+                                         honestidad=="De acuerdo" ~ 6,
+                                         honestidad=="Muy de acuerdo" ~ 7)) %>% 
+  mutate(gobernar = case_when(gobernar=="Muy en desacuerdo" ~ 1,
+                                         gobernar=="En desacuerdo" ~ 2,
+                                         gobernar=="Algo en desacuerdo" ~ 3,
+                                         gobernar=="Ni de acuerdo ni en desacuerdo"~ 4,
+                                         gobernar=="Algo de acuerdo" ~ 5,
+                                         gobernar=="De acuerdo" ~ 6,
+                                         gobernar=="Muy de acuerdo" ~ 7)) %>% 
+  mutate(eval_MORENA_1 = case_when(eval_MORENA_1=="Pésimo" ~ 1,
+                                         eval_MORENA_1=="Muy mal" ~ 2,
+                                         eval_MORENA_1=="Mal" ~ 3,
+                                         eval_MORENA_1=="Regular"~ 4,
+                                         eval_MORENA_1=="Bien" ~ 5,
+                                         eval_MORENA_1=="Muy bien" ~ 6,
+                                         eval_MORENA_1=="Excelente" ~ 7))
+
+evaluacion$indice_eval = rowMeans(evaluacion[ , 2:7], na.rm = TRUE)
+
+
+#Pruebas de hipótesis de una cola
+
+controlescandalo <- evaluacion %>% 
+  filter(Tratamiento=="Control" | Tratamiento=="Escandalo") 
+
+h1 <- t.test(indice_eval ~ Tratamiento, data = controlescandalo, alternative = "greater")
+
+controlincong <- evaluacion %>% 
+  filter(Tratamiento=="Control" | Tratamiento=="Incongruencia")
+
+h2a <- t.test(indice_eval ~ Tratamiento, data = controlincong, alternative = "greater")
+
+escandaloincong <- evaluacion %>% 
+  filter(Tratamiento=="Escandalo" | Tratamiento=="Incongruencia")
+
+h2b <- t.test(indice_eval ~ Tratamiento, data = escandaloincong, alternative = "greater")
+
+congincong <- evaluacion %>% 
+  filter(Tratamiento=="Congruencia" | Tratamiento=="Incongruencia")
+
+h3 <- t.test(indice_eval ~ Tratamiento, data = congincong, alternative = "greater")
+
+```
+
+#/pagebreak Gráficos de prueba de hipótesis
+
+Prueba de Hipótesis 1
+```{r, message=F, warning=FALSE}
+#Prueba de Hipótesis 1
+
+# Información de la prueba t
+media_control <- 3.276190
+media_escandalo <- 2.948529
+estimador <- media_control - media_escandalo
+
+
+t_stat <- 1.7613
+df <- 270.21
+alpha <- 0.05
+h1
+# Calcular la desviación estándar y tamaño de muestra
+sd <-  3.097  
+n <- 277  
+
+# Definir el rango para el gráfico
+x <- seq(estimador - 1.3 * sd, estimador + 1.3 * sd, length.out = 100)
+
+y <- dt(x, df = df)
+
+# Crear el gráfico de la distribución normal
+plot(x, y, type = "l", col = "blue", lwd = 2, 
+     main = "Distribución del estadístico T y Zona de Rechazo",
+     xlab = "Valor", ylab = "Densidad de Probabilidad")
+# Añadir la línea de la estadística t
+abline(v = t_stat, col = "red", lwd = 2)
+
+# Calcular el valor crítico para el 5% de significancia (zona de rechazo)
+t_critico <- qt(1 - alpha, df)
+
+# Sombrear la zona de rechazo
+polygon(c(t_critico, seq(t_critico, max(x), length.out = 100)), 
+        c(0, dt(seq(t_critico, max(x), length.out = 100), df = df)), 
+        col = rgb(1, 0, 0, 0.5), border = NA)
+
+# Añadir leyenda
+legend("topleft", legend = c("Estadístico t", "Zona de rechazo"),
+       col = c("red", "darkgrey"), lwd = c(2, NA), fill = c(NA, rgb(1, 0, 0, 0.5)))
+
+text(t_stat + .6, 0.20, "t = 1.76", pos = 1, col = "red", cex = 1)
+
+```
+
+Prueba de Hipótesis 2a
+```{r, message=F, warning=FALSE}
+#Prueba de Hipótesis 2a
+
+#Información de la prueba t
+media_control <- 3.276190
+media_incongruencia <- 3.0026
+estimador <- media_control - media_incongruencia
+
+
+t_stat <- 1.501119
+df <- 277.9053
+alpha <- 0.1
+
+#Calcular la desviación estándar y tamaño de muestra
+sd <-  3.065  
+n <- 282  
+
+#Definir el rango para el gráfico
+x <- seq(estimador - 1.3 * sd, estimador + 1.3 * sd, length.out = 100)
+
+y <- dt(x, df = df)
+
+#Crear el gráfico de la distribución normal
+plot(x, y, type = "l", col = "blue", lwd = 2, 
+     main = "Distribución del estadístico T y Zona de Rechazo",
+     xlab = "Valor", ylab = "Densidad de Probabilidad")
+
+#Añadir la línea de la estadística t
+abline(v = t_stat, col = "red", lwd = 2)
+
+#Calcular el valor crítico para el 5% de significancia (zona de rechazo)
+t_critico <- qt(1 - alpha, df)
+
+#Sombrear la zona de rechazo
+polygon(c(t_critico, seq(t_critico, max(x), length.out = 100)), 
+        c(0, dt(seq(t_critico, max(x), length.out = 100), df = df)), 
+        col = rgb(1, 0, 0, 0.5), border = NA)
+
+#Añadir leyenda
+legend("topleft", legend = c("Estadístico t", "Zona de rechazo"),
+       col = c("red", "darkgrey"), lwd = c(2, NA), fill = c(NA, rgb(1, 0, 0, 0.5)))
+
+text(t_stat + .6, 0.20, "t = 1.5", pos = 1, col = "red", cex = 1)
+```
+
+Prueba de Hipótesis 2b
+```{r, message=F, warning=FALSE}
+#Prueba de Hipótesis 2b
+
+#Información de la prueba t
+media_escandalo <- 2.948529
+media_incongruencia <- 3.0026
+estimador <- media_escandalo - media_incongruencia
+
+
+t_stat <- -0.2818195
+df <- 274.1416
+alpha <- 0.05
+
+#Calcular la desviación estándar y tamaño de muestra
+sd <-  3.196  
+n <- 277  
+
+#Definir el rango para el gráfico
+x <- seq(estimador - 1.3 * sd, estimador + 1.3 * sd, length.out = 100)
+
+y <- dt(x, df = df)
+
+#Crear el gráfico de la distribución normal
+plot(x, y, type = "l", col = "blue", lwd = 2, 
+     main = "Distribución del estadístico T y Zona de Rechazo",
+     xlab = "Valor", ylab = "Densidad de Probabilidad")
+
+#Añadir la línea del estadístico t
+abline(v = t_stat, col = "red", lwd = 2)
+
+#Calcular el valor crítico para el 5% de significancia (zona de rechazo)
+t_critico <- qt(1 - alpha, df)
+
+#Sombrear la zona de rechazo
+polygon(c(t_critico, seq(t_critico, max(x), length.out = 100)), 
+        c(0, dt(seq(t_critico, max(x), length.out = 100), df = df)), 
+        col = rgb(1, 0, 0, 0.5), border = NA)
+
+#Añadir leyenda
+legend("topleft", legend = c("Estadístico t", "Zona de rechazo"),
+       col = c("red", "darkgrey"), lwd = c(2, NA), fill = c(NA, rgb(1, 0, 0, 0.5)))
+
+text(t_stat + .6, 0.20, "t = -0.28", pos = 1, col = "red", cex = 1)
+```
+
+Prueba de Hipótesis 3
+```{r, message=F, warning=FALSE}
+#Prueba de Hipótesis 3
+
+#Información de la prueba t
+media_congruencia <- 3.060827
+media_incongruencia <- 3.0026
+estimador <- media_congruencia - media_incongruencia
+
+t_stat <- 0.2976089
+df <- 273.8245
+alpha <- 0.05
+
+#Calcular la desviación estándar y tamaño de muestra
+sd <-  3.261  
+n <- 279  
+
+#Definir el rango para el gráfico
+x <- seq(estimador - 1.3 * sd, estimador + 1.3 * sd, length.out = 100)
+
+y <- dt(x, df = df)
+
+# Crear el gráfico de la distribución normal
+plot(x, y, type = "l", col = "blue", lwd = 2, 
+     main = "Distribución del estadístico T y Zona de Rechazo",
+     xlab = "Valor", ylab = "Densidad de Probabilidad")
+# Añadir la línea de la estadística t
+abline(v = t_stat, col = "red", lwd = 2)
+
+# Calcular el valor crítico para el 5% de significancia (zona de rechazo)
+t_critico <- qt(1 - alpha, df)
+
+# Sombrear la zona de rechazo
+polygon(c(t_critico, seq(t_critico, max(x), length.out = 100)), 
+        c(0, dt(seq(t_critico, max(x), length.out = 100), df = df)), 
+        col = rgb(1, 0, 0, 0.5), border = NA)
+
+
+# Añadir leyenda
+legend("topleft", legend = c("Estadístico t", "Zona de rechazo"),
+       col = c("red", "darkgrey"), lwd = c(2, NA), fill = c(NA, rgb(1, 0, 0, 0.5)))
+
+
+text(t_stat + .6, 0.20, "t = 0.3", pos = 1, col = "red", cex = 1)
+
+rm(alpha, df, estimador, media_congruencia, media_control, media_escandalo, media_incongruencia, n, sd, t_critico, t_stat, x, y)
+
+```
+
+
+#/pagebreak Gráfico de comparación de medias y distribuciones
+
+Control y escándalo (H1)
+```{r, message=F, warning=FALSE}
+
+b <- controlescandalo %>%
+  na.omit(controlescandalo$indice_eval) %>% 
+  group_by(Tratamiento) %>%
+  summarise(med=round(median(indice_eval),2),
+            pro=round(mean(indice_eval),2))
+
+controlescandalo %>%
+  ggplot(aes(x=Tratamiento, y=indice_eval, fill=Tratamiento)) + 
+    geom_violinhalf(alpha=.7) + 
+    scale_fill_manual(name="",
+                      values = c("lightgray", "black", "white","grey30","grey","grey10","grey89","grey50")) +
+    theme_bw() + 
+  geom_boxplot(alpha=.001,width=.3) + 
+    geom_jitter(color="black", size=0.5, alpha=0.5,width = .05) + 
+  guides(fill = FALSE) +
+  labs(title='Comparación de medias entre grupo de Control y tratamiento de Escándalo',
+       caption='')+
+  theme(plot.title = element_markdown(size=9),
+        plot.subtitle = element_markdown(size=8)) +
+  xlab("") + ylab("")+
+  scale_y_continuous(limits = c(0,8), breaks = seq(0,8, by=2))+
+  coord_flip()+
+  geom_rect(aes(xmin=0.85,xmax=1.15,ymin=b$pro[1],ymax=b$pro[1]+.03),
+            fill="red", alpha = 0.04, color = "red")+
+  geom_rect(aes(xmin=1.85,xmax=2.15,ymin=b$pro[2],ymax=b$pro[2]+.03),
+            fill="red", alpha = 0.04, color = "red")+
+  geom_label(aes(x=0.75, y=b$pro[1],label=paste("media=",b$pro[1])), fill="grey90",alpha=.5,color="black")+
+  geom_label(aes(x=1.75, y=b$pro[2],label=paste("media=",b$pro[2])), fill="grey90",alpha=.5)
+```
+
+Control e incongruencia (H2a)
+```{r, message=F, warning=FALSE}
+
+c <- controlincong %>%
+  na.omit(controlincong$indice_eval) %>% 
+  group_by(Tratamiento) %>%
+  summarise(med=round(median(indice_eval),2),
+            pro=round(mean(indice_eval),2))
+
+controlincong %>%
+  ggplot(aes(x=Tratamiento, y=indice_eval, fill=Tratamiento)) + 
+    geom_violinhalf(alpha=.7) + 
+    scale_fill_manual(name="",
+                      values = c("lightgray", "black", "white","grey30","grey","grey10","grey89","grey50")) +
+    theme_bw() + 
+  geom_boxplot(alpha=.001,width=.3) + 
+    geom_jitter(color="black", size=0.5, alpha=0.5,width = .05) + 
+  guides(fill = FALSE) +
+  labs(title='Comparación de medias entre grupo de Control y tratamiento de Incongruencia',
+       caption='')+
+  theme(plot.title = element_markdown(size=9),
+        plot.subtitle = element_markdown(size=8)) +
+  xlab("") + ylab("")+
+  scale_y_continuous(limits = c(0,8), breaks = seq(0,8, by=2))+
+  coord_flip()+
+  geom_rect(aes(xmin=0.85,xmax=1.15,ymin=c$pro[1],ymax=c$pro[1]+.03),
+            fill="red", alpha = 0.04, color = "red")+
+  geom_rect(aes(xmin=1.85,xmax=2.15,ymin=c$pro[2],ymax=c$pro[2]+.03),
+            fill="red", alpha = 0.04, color = "red")+
+  geom_label(aes(x=0.75, y=c$pro[1],label=paste("media=",c$pro[1])), fill="grey90",alpha=.5,color="black")+
+  geom_label(aes(x=1.75, y=c$pro[2],label=paste("media=",c$pro[2])), fill="grey90",alpha=.5)
+```
+
+Escándalo e incongruencia (H2b)
+```{r, message=F, warning=FALSE}
+
+d <- escandaloincong %>%
+  na.omit(escandaloincong$indice_eval) %>% 
+  group_by(Tratamiento) %>%
+  summarise(med=round(median(indice_eval),2),
+            pro=round(mean(indice_eval),2))
+
+escandaloincong %>%
+  ggplot(aes(x=Tratamiento, y=indice_eval, fill=Tratamiento)) + 
+    geom_violinhalf(alpha=.7) + 
+    scale_fill_manual(name="",
+                      values = c("lightgray", "black", "white","grey30","grey","grey10","grey89","grey50")) +
+    theme_bw() + 
+  geom_boxplot(alpha=.001,width=.3) + 
+    geom_jitter(color="black", size=0.5, alpha=0.5,width = .05) + 
+  guides(fill = FALSE) +
+  labs(title='Comparación de medias entre gtratamiento de Escándalo y tratamiento de Incongruencia',
+       caption='')+
+  theme(plot.title = element_markdown(size=9),
+        plot.subtitle = element_markdown(size=8)) +
+  xlab("") + ylab("")+
+  scale_y_continuous(limits = c(0,8), breaks = seq(0,8, by=2))+
+  coord_flip()+
+  geom_rect(aes(xmin=0.85,xmax=1.15,ymin=d$pro[1],ymax=d$pro[1]+.03),
+            fill="red", alpha = 0.04, color = "red")+
+  geom_rect(aes(xmin=1.85,xmax=2.15,ymin=d$pro[2],ymax=d$pro[2]+.03),
+            fill="red", alpha = 0.04, color = "red")+
+  geom_label(aes(x=0.75, y=d$pro[1],label=paste("media=",d$pro[1])), fill="grey90",alpha=.5,color="black")+
+  geom_label(aes(x=1.75, y=d$pro[2],label=paste("media=",d$pro[2])), fill="grey90",alpha=.5)
+```
+
+Congruencia e incongruencia (H3)
+```{r, message=F, warning=FALSE}
+
+e <- congincong %>%
+  na.omit(congincong$indice_eval) %>% 
+  group_by(Tratamiento) %>%
+  summarise(med=round(median(indice_eval),2),
+            pro=round(mean(indice_eval),2))
+
+congincong %>%
+  ggplot(aes(x=Tratamiento, y=indice_eval, fill=Tratamiento)) + 
+    geom_violinhalf(alpha=.7) + 
+    scale_fill_manual(name="",
+                      values = c("lightgray", "black", "white","grey30","grey","grey10","grey89","grey50")) +
+    theme_bw() + 
+  geom_boxplot(alpha=.001,width=.3) + 
+    geom_jitter(color="black", size=0.5, alpha=0.5,width = .05) + 
+  guides(fill = FALSE) +
+  labs(title='Comparación de medias entre tratamiento de Congruencia y tratamiento de Incongruencia',
+       caption='')+
+  theme(plot.title = element_markdown(size=9),
+        plot.subtitle = element_markdown(size=8)) +
+  xlab("") + ylab("")+
+  scale_y_continuous(limits = c(0,8), breaks = seq(0,8, by=2))+
+  coord_flip()+
+  geom_rect(aes(xmin=0.85,xmax=1.15,ymin=e$pro[1],ymax=e$pro[1]+.03),
+            fill="red", alpha = 0.04, color = "red")+
+  geom_rect(aes(xmin=1.85,xmax=2.15,ymin=e$pro[2],ymax=e$pro[2]+.03),
+            fill="red", alpha = 0.04, color = "red")+
+  geom_label(aes(x=0.75, y=e$pro[1],label=paste("media=",e$pro[1])), fill="grey90",alpha=.5,color="black")+
+  geom_label(aes(x=1.75, y=e$pro[2],label=paste("media=",e$pro[2])), fill="grey90",alpha=.5)
+
+rm(b,c,d,e)
+```
+
+
+#/pagebreak Análisis de mediación
+```{r, warning=FALSE, message=FALSE}
+
+library(mediation)
+library(glm2)
+
+med <- base %>% 
+  dplyr::select(Tratamiento, eval_MORENA_1, confianza, representado, honestidad, defensa, gobernar, voto) %>% 
+  mutate(eval_MORENA_1 = case_when(eval_MORENA_1=="Pésimo" ~ 1,
+                                         eval_MORENA_1=="Muy mal" ~ 2,
+                                         eval_MORENA_1=="Mal" ~ 3,
+                                         eval_MORENA_1=="Regular"~ 4,
+                                         eval_MORENA_1=="Bien" ~ 5,
+                                         eval_MORENA_1=="Muy bien" ~ 6,
+                                         eval_MORENA_1=="Excelente" ~ 7)) %>% 
+  mutate(confianza = case_when(confianza=="Muy en desacuerdo" ~ 1,
+                                         confianza=="En desacuerdo" ~ 2,
+                                         confianza=="Algo en desacuerdo" ~ 3,
+                                         confianza=="Ni de acuerdo ni en desacuerdo"~ 4,
+                                         confianza=="Algo de acuerdo" ~ 5,
+                                         confianza=="De acuerdo" ~ 6,
+                                         confianza=="Muy de acuerdo" ~ 7)) %>% 
+  mutate(representado = case_when(representado=="Muy en desacuerdo" ~ 1,
+                                         representado=="En desacuerdo" ~ 2,
+                                         representado=="Algo en desacuerdo" ~ 3,
+                                         representado=="Ni de acuerdo ni en desacuerdo"~ 4,
+                                         representado=="Algo de acuerdo" ~ 5,
+                                         representado=="De acuerdo" ~ 6,
+                                         representado=="Muy de acuerdo" ~ 7)) %>% 
+  mutate(defensa = case_when(defensa=="Muy en desacuerdo" ~ 1,
+                                         defensa=="En desacuerdo" ~ 2,
+                                         defensa=="Algo en desacuerdo" ~ 3,
+                                         defensa=="Ni de acuerdo ni en desacuerdo"~ 4,
+                                         defensa=="Algo de acuerdo" ~ 5,
+                                         defensa=="De acuerdo" ~ 6,
+                                         defensa=="Muy de acuerdo" ~ 7)) %>% 
+  mutate(honestidad = case_when(honestidad=="Muy en desacuerdo" ~ 1,
+                                         honestidad=="En desacuerdo" ~ 2,
+                                         honestidad=="Algo en desacuerdo" ~ 3,
+                                         honestidad=="Ni de acuerdo ni en desacuerdo"~ 4,
+                                         honestidad=="Algo de acuerdo" ~ 5,
+                                         honestidad=="De acuerdo" ~ 6,
+                                         honestidad=="Muy de acuerdo" ~ 7)) %>% 
+  mutate(gobernar = case_when(gobernar=="Muy en desacuerdo" ~ 1,
+                                         gobernar=="En desacuerdo" ~ 2,
+                                         gobernar=="Algo en desacuerdo" ~ 3,
+                                         gobernar=="Ni de acuerdo ni en desacuerdo"~ 4,
+                                         gobernar=="Algo de acuerdo" ~ 5,
+                                         gobernar=="De acuerdo" ~ 6,
+                                         gobernar=="Muy de acuerdo" ~ 7)) %>%
+  mutate(voto = case_when(voto == "MORENA" ~ 1,
+                          voto != "MORENA" ~ 0)) 
+
+med$eval = rowMeans(med[ , 2:7], na.rm = TRUE)
+
+
+#Mediacion general
+
+med <- na.omit(med[, c("Tratamiento", "eval", "voto")])
+
+med <- med %>% 
+  mutate(Tratamiento = ifelse(Tratamiento == "Control", 0, 1))
+
+med$Tratamiento <- as.factor(med$Tratamiento)
+med$voto <- as.factor(med$voto)
+levels(med$Tratamiento)
+
+#Modelo para la variable mediadora
+modelo_mediador <- lm(eval ~ Tratamiento, data = med)
+
+# Modelo para la variable dependiente
+modelo_dependiente <- glm(voto ~ Tratamiento + eval, family = binomial(link = "logit"), data = med)
+
+# Realizar la mediación
+#mediacion <- mediate(model.m = modelo_mediador, model.y = modelo_dependiente, treat = "Tratamiento", mediator = "eval", boot = TRUE, sims = 1000)
+
+mediacion <- mediate(model.m = modelo_mediador, model.y = modelo_dependiente, 
+                     treat = "Tratamiento", mediator = "eval", 
+                     control.value = "0", treat.value = "1", 
+                     boot = TRUE, sims = 5000)
+
+# Resumen de los resultados
+summary(mediacion)
+
+#Gráfico
+efectos <- data.frame(
+  efecto = c("ACME", "ADE", "Efecto Total"),
+  estimacion = c(-0.04389, -0.00734, -0.05123),
+  ci_lower = c(-0.096, -0.068, -0.132),
+  ci_upper = c(0.00, 0.05, 0.03))
+
+ggplot(efectos, aes(x = estimacion, y = efecto)) +
+  geom_point(size = 4, color = "blue") +  
+  geom_errorbarh(aes(xmin = ci_lower, xmax = ci_upper), height = 0.2) +  
+  labs(title = "Efectos de Mediación", x = "Estimación", y = "Tipo de Efecto") +
+  geom_vline(xintercept = 0, linetype = "dotted", color = "red") +  
+  geom_text(aes(label = round(estimacion, 3)), vjust = -0.9, color = "black") +  
+  theme_minimal() +  
+  theme(panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank())
+
+```
+
+#Análisis de mediación con covariantes
+```{r, warning=FALSE, message=FALSE}
+
+library(mediation)
+library(glm2)
+
+med <- base %>% 
+  dplyr::select(sexo, idpartido, FSMconoce,Tratamiento, eval_MORENA_1, 
+                confianza, representado, honestidad, defensa, gobernar, voto) %>% 
+  mutate(eval_MORENA_1 = case_when(eval_MORENA_1=="Pésimo" ~ 1,
+                                         eval_MORENA_1=="Muy mal" ~ 2,
+                                         eval_MORENA_1=="Mal" ~ 3,
+                                         eval_MORENA_1=="Regular"~ 4,
+                                         eval_MORENA_1=="Bien" ~ 5,
+                                         eval_MORENA_1=="Muy bien" ~ 6,
+                                         eval_MORENA_1=="Excelente" ~ 7)) %>% 
+  mutate(confianza = case_when(confianza=="Muy en desacuerdo" ~ 1,
+                                         confianza=="En desacuerdo" ~ 2,
+                                         confianza=="Algo en desacuerdo" ~ 3,
+                                         confianza=="Ni de acuerdo ni en desacuerdo"~ 4,
+                                         confianza=="Algo de acuerdo" ~ 5,
+                                         confianza=="De acuerdo" ~ 6,
+                                         confianza=="Muy de acuerdo" ~ 7)) %>% 
+  mutate(representado = case_when(representado=="Muy en desacuerdo" ~ 1,
+                                         representado=="En desacuerdo" ~ 2,
+                                         representado=="Algo en desacuerdo" ~ 3,
+                                         representado=="Ni de acuerdo ni en desacuerdo"~ 4,
+                                         representado=="Algo de acuerdo" ~ 5,
+                                         representado=="De acuerdo" ~ 6,
+                                         representado=="Muy de acuerdo" ~ 7)) %>% 
+  mutate(defensa = case_when(defensa=="Muy en desacuerdo" ~ 1,
+                                         defensa=="En desacuerdo" ~ 2,
+                                         defensa=="Algo en desacuerdo" ~ 3,
+                                         defensa=="Ni de acuerdo ni en desacuerdo"~ 4,
+                                         defensa=="Algo de acuerdo" ~ 5,
+                                         defensa=="De acuerdo" ~ 6,
+                                         defensa=="Muy de acuerdo" ~ 7)) %>% 
+  mutate(honestidad = case_when(honestidad=="Muy en desacuerdo" ~ 1,
+                                         honestidad=="En desacuerdo" ~ 2,
+                                         honestidad=="Algo en desacuerdo" ~ 3,
+                                         honestidad=="Ni de acuerdo ni en desacuerdo"~ 4,
+                                         honestidad=="Algo de acuerdo" ~ 5,
+                                         honestidad=="De acuerdo" ~ 6,
+                                         honestidad=="Muy de acuerdo" ~ 7)) %>% 
+  mutate(gobernar = case_when(gobernar=="Muy en desacuerdo" ~ 1,
+                                         gobernar=="En desacuerdo" ~ 2,
+                                         gobernar=="Algo en desacuerdo" ~ 3,
+                                         gobernar=="Ni de acuerdo ni en desacuerdo"~ 4,
+                                         gobernar=="Algo de acuerdo" ~ 5,
+                                         gobernar=="De acuerdo" ~ 6,
+                                         gobernar=="Muy de acuerdo" ~ 7)) %>%
+  mutate(voto = case_when(voto == "MORENA" ~ 1,
+                          voto != "MORENA" ~ 0)) %>%   
+  mutate(partidos = case_when(idpartido == "MORENA" | idpartido == "Partido del Trabajo (PT)" ~ "Morena",
+                              #idpartido == "Ninguno" ~ "Ninguno",
+                              TRUE ~ "Otro")) %>% 
+  mutate(conoce_FSM = case_when(FSMconoce == "No" | FSMconoce == "No estoy seguro(a)" ~ "No",
+                                TRUE ~ "Si"))
+
+med$eval = rowMeans(med[ , 5:11], na.rm = TRUE)
+
+
+#Mediacion general
+
+med <- na.omit(med[, c("sexo", "partidos", "conoce_FSM", "Tratamiento", "eval", "voto")])
+
+med <- med %>% 
+  mutate(Tratamiento = ifelse(Tratamiento == "Control", 0, 1))
+
+med$Tratamiento <- as.factor(med$Tratamiento)
+med$voto <- as.factor(med$voto)
+levels(med$Tratamiento)
+
+#Modelo para la variable mediadora
+modelo_mediador <- lm(eval ~ Tratamiento + partidos  + conoce_FSM, data = med)
+
+# Modelo para la variable dependiente
+modelo_dependiente <- glm(voto ~ eval + Tratamiento + partidos  + conoce_FSM, family = binomial(link = "logit"), data = med)
+
+# Realizar la mediación
+#mediacion <- mediate(model.m = modelo_mediador, model.y = modelo_dependiente, treat = "Tratamiento", mediator = "eval", boot = TRUE, sims = 1000)
+
+#Quasi-Bayesian Confidence Intervals
+mediacionQB <- mediate(model.m = modelo_mediador, model.y = modelo_dependiente, 
+                     treat = "Tratamiento", mediator = "eval", 
+                     control.value = "0", treat.value = "1", 
+                     robustSE = TRUE, sims = 1000)
+
+
+mediacionBS <- mediate(model.m = modelo_mediador, model.y = modelo_dependiente, 
+                     treat = "Tratamiento", mediator = "eval", 
+                     control.value = "0", treat.value = "1", 
+                     boot=TRUE, sims = 1000)
+
+# Resumen de los resultados
+summary(mediacionQB)
+summary(mediacionBS)
+
+
+# Gráfico para el método bayesiano
+efectosq <- data.frame(
+  efecto = c("ACME", "ADE", "Efecto Total"),
+  estimacion = c(-0.0242, -0.0234, -0.0476),
+  ci_lower = c(-0.0491, -0.0794, -0.1050),
+  ci_upper = c(0.00, 0.03, 0.01))
+
+ggplot(efectosq, aes(x = estimacion, y = efecto)) +
+  geom_point(size = 4, color = "blue") +  
+  geom_errorbarh(aes(xmin = ci_lower, xmax = ci_upper), height = 0.2) +  
+  labs(title = "Efectos de Mediación", x = "Estimación", y = "Tipo de Efecto") +
+  geom_vline(xintercept = 0, linetype = "dotted", color = "red") +  
+  geom_text(aes(label = round(estimacion, 3)), vjust = -0.9, color = "black") +  
+  theme_minimal() +  
+  theme(panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank())
+
+
+# Gráfico para el método de bootstraping
+efectosb <- data.frame(
+  efecto = c("ACME", "ADE", "Efecto Total"),
+  estimacion = c(-0.0243, -0.0236, -0.0478),
+  ci_lower = c(-0.0470, -0.0737, -0.1014),
+  ci_upper = c(0.00, 0.03, 0.01))
+
+ggplot(efectosb, aes(x = estimacion, y = efecto)) +
+  geom_point(size = 4, color = "blue") +  # Puntos de estimación
+  geom_errorbarh(aes(xmin = ci_lower, xmax = ci_upper), height = 0.2) +  # Barras de error horizontales
+  labs(title = "Efectos de Mediación", x = "Estimación", y = "Tipo de Efecto") +
+  geom_vline(xintercept = 0, linetype = "dotted", color = "red") +  # Línea punteada en cero
+  geom_text(aes(label = round(estimacion, 3)), vjust = -0.9, color = "black") +  # Ajustar la posición vertical
+  theme_minimal() +  # Tema minimalista
+  theme(panel.grid.major = element_blank(),  # Eliminar líneas de la cuadrícula mayor
+        panel.grid.minor = element_blank())
+
+```
+
+Los resultados sugieren que los tratamiento en el experimento puede haber generado una evaluación negativa en el partido, lo que a su vez hizo que los sujetos tuvieran más probabilidades de no votar por MORENA. Aquí, dado que el resultado es binario, todos los efectos estimados se expresan como el aumento de la probabilidad de que el sujeto votara por MORENA.
+
+
+
+#/pagebreak Análisis de efectos heterogéneos
+Base de datos para hacer el análisis de efectos heterogéneos/
+Selecciono las variables que considero pueden esconder efectos diferenciados: sexo, identificación partidista, el conocimiento previo del personaje y la evaluación previa que se tiene de él. 
+```{r, warning=FALSE, message=FALSE}
+#Base de datos para el anáisis de efectos heterogéneos
+
+heterogeneos <- base %>% 
+  dplyr::select(sexo, idpartido, FSMconoce, FSMopinion_1, Tratamiento,
+                eval_MORENA_1, confianza, representado, honestidad, defensa, gobernar) %>%   
+  mutate(confianza = case_when(confianza=="Muy en desacuerdo" ~ 1,
+                                         confianza=="En desacuerdo" ~ 2,
+                                         confianza=="Algo en desacuerdo" ~ 3,
+                                         confianza=="Ni de acuerdo ni en desacuerdo"~ 4,
+                                         confianza=="Algo de acuerdo" ~ 5,
+                                         confianza=="De acuerdo" ~ 6,
+                                         confianza=="Muy de acuerdo" ~ 7)) %>% 
+  mutate(representado = case_when(representado=="Muy en desacuerdo" ~ 1,
+                                         representado=="En desacuerdo" ~ 2,
+                                         representado=="Algo en desacuerdo" ~ 3,
+                                         representado=="Ni de acuerdo ni en desacuerdo"~ 4,
+                                         representado=="Algo de acuerdo" ~ 5,
+                                         representado=="De acuerdo" ~ 6,
+                                         representado=="Muy de acuerdo" ~ 7)) %>% 
+  mutate(defensa = case_when(defensa=="Muy en desacuerdo" ~ 1,
+                                         defensa=="En desacuerdo" ~ 2,
+                                         defensa=="Algo en desacuerdo" ~ 3,
+                                         defensa=="Ni de acuerdo ni en desacuerdo"~ 4,
+                                         defensa=="Algo de acuerdo" ~ 5,
+                                         defensa=="De acuerdo" ~ 6,
+                                         defensa=="Muy de acuerdo" ~ 7)) %>% 
+  mutate(honestidad = case_when(honestidad=="Muy en desacuerdo" ~ 1,
+                                         honestidad=="En desacuerdo" ~ 2,
+                                         honestidad=="Algo en desacuerdo" ~ 3,
+                                         honestidad=="Ni de acuerdo ni en desacuerdo"~ 4,
+                                         honestidad=="Algo de acuerdo" ~ 5,
+                                         honestidad=="De acuerdo" ~ 6,
+                                         honestidad=="Muy de acuerdo" ~ 7)) %>% 
+  mutate(gobernar = case_when(gobernar=="Muy en desacuerdo" ~ 1,
+                                         gobernar=="En desacuerdo" ~ 2,
+                                         gobernar=="Algo en desacuerdo" ~ 3,
+                                         gobernar=="Ni de acuerdo ni en desacuerdo"~ 4,
+                                         gobernar=="Algo de acuerdo" ~ 5,
+                                         gobernar=="De acuerdo" ~ 6,
+                                         gobernar=="Muy de acuerdo" ~ 7)) %>% 
+  mutate(eval_MORENA_1 = case_when(eval_MORENA_1=="Pésimo" ~ 1,
+                                         eval_MORENA_1=="Muy mal" ~ 2,
+                                         eval_MORENA_1=="Mal" ~ 3,
+                                         eval_MORENA_1=="Regular"~ 4,
+                                         eval_MORENA_1=="Bien" ~ 5,
+                                         eval_MORENA_1=="Muy bien" ~ 6,
+                                         eval_MORENA_1=="Excelente" ~ 7)) %>%   
+  mutate(partidos = case_when(idpartido == "MORENA" | idpartido == "Partido del Trabajo (PT)" ~ "Morena",
+                              #idpartido == "Ninguno" ~ "Ninguno",
+                              TRUE ~ "Otro")) %>% 
+  mutate(eval_FSM = case_when(FSMopinion_1 == "Extremadamente mala" | FSMopinion_1 =="Moderadamente mala" | 
+                                FSMopinion_1 == "Ligeramente mala" ~ "negativa",
+                              TRUE ~ "positiva")) %>% 
+  mutate(conoce_FSM = case_when(FSMconoce == "No" | FSMconoce == "No estoy seguro(a)" ~ "No",
+                                TRUE ~ "Si")) 
+
+
+heterogeneos$indice_eval = rowMeans(heterogeneos[ , 6:11], na.rm = TRUE)
+```
+
+Efectos heterogéneos para la variable de identificación partidista
+```{r, warning=FALSE, message=FALSE}
+#Efectos heterogéneos identificación partidista
+
+#Identificación partidista, comparación entre grupo de Control y tratamiento de Escándalo, id con MORENA y aliados
+het1 <- heterogeneos %>% 
+  filter(Tratamiento=="Control" | Tratamiento=="Escandalo") %>% 
+  filter(partidos == "Morena") 
+
+t.test(indice_eval ~ Tratamiento, data = het1, alternative = "greater")
+
+#Identificación partidista, comparación entre grupo de Control y tratamiento de Escándalo, id con Otros
+het2 <- heterogeneos %>% 
+  filter(Tratamiento=="Control" | Tratamiento=="Escandalo") %>% 
+  filter(partidos == "Otro")
+
+t.test(indice_eval ~ Tratamiento, data = het2, alternative = "greater")
+
+#Identificación partidista, comparación entre grupo de Control y tratamiento de Incongruencia
+het3 <- heterogeneos %>% 
+  filter(Tratamiento=="Control" | Tratamiento=="Incongruencia") %>% 
+  filter(partidos == "Morena") #Cambiar a "Otro", para quienes declararon no identificarse con MORENA y aliados
+
+t.test(indice_eval ~ Tratamiento, data = het3, alternative = "greater")
+
+#Identificación partidista, comparación entre tratamiento de Escándalo y tratamiento de Incongruencia
+het4 <- heterogeneos %>% 
+  filter(Tratamiento=="Escandalo" | Tratamiento=="Incongruencia") %>% 
+  filter(partidos == "Morena") #Cambiar a "Otro", para quienes declararon no identificarse con MORENA y aliados
+
+t.test(indice_eval ~ Tratamiento, data = het4, alternative = "greater")
+
+#Identificación partidista, comparación entre tratamiento de Congruencia y tratamiento de Incongruencia
+het5 <- heterogeneos %>% 
+  filter(Tratamiento=="Congruencia" | Tratamiento=="Incongruencia") %>% 
+  filter(partidos == "Morena") #Cambiar a "Otro", para quienes declararon no identificarse con MORENA y aliados
+
+t.test(indice_eval ~ Tratamiento, data = het5, alternative = "greater")
+
+#Los efecots heterogeneos del partidismo,e s decir, ser partidista de MORENA o no sobre el efecto de los tratamientos
+# 1. La comparación entre el control y el escándalo: cocnlusion 1: las personas con partidismo por morena no hay diferencia significativa entre los grupos, no hay un efecto diferenciado de los tratamientos sobre su evaluación del partido. 
+#Conclusión 2: Para los individuos que no son morenistas hay una diferencia significativa entre el efecto de los tratamientos del control y del escándalo donde los no partidistas por MORENa expuestos al control tuvieron una mejor evaluación que aquellos individuos expuestos al escándalo. 
+#Conclusión 2: El la diferencia entre los tratamientos de control e incongruencia para los individuos identificados con MORENA no es significativa. Es decir los tratamientos no tienen efecto en su evaluación final del partido. Mientras que los no partidistas por MORENA hay una diferencia significativa entre los grupos donde los individuos expuestos al tratamiento presentan una peor evaluación del partido que aquellos expuestos al control.
+```
+
+Efectos heterogéneos para la variable de evaluación previa
+```{r, warning=FALSE, message=FALSE}
+#Efectos heterogéneos con evaluación previa
+
+#Evaluación previa, comparación entre grupo de Control y tratamiento de Escándalo
+het6 <- heterogeneos %>% 
+  filter(Tratamiento=="Control" | Tratamiento=="Escandalo") %>% 
+  filter(eval_FSM == "positiva") #Cambiar a "positiva", para quienes declararon tener una evaluación positiva de FSM
+
+t.test(indice_eval ~ Tratamiento, data = het6, alternative = "greater")
+
+#El efecto de la evaluación previa del candidato: cuando se tiene una evaluación previa positiva del candidato, la evaluación del partido baja y es significativa la diferencia entre los dos grupos.
+
+
+#Evaluación previa, comparación entre grupo de Control y tratamiento de Incongruencia
+het7 <- heterogeneos %>% 
+  filter(Tratamiento=="Control" | Tratamiento=="Incongruencia") %>% 
+  filter(eval_FSM == "positiva") #Cambiar a "positiva", para quienes declararon tener una evaluación positiva de FSM
+
+t.test(indice_eval ~ Tratamiento, data = het7, alternative = "greater")
+
+
+#Evaluación previa, comparación entre tratamiento de Escándalo y tratamiento de Incongruencia
+het8 <- heterogeneos %>% 
+  filter(Tratamiento=="Escandalo" | Tratamiento=="Incongruencia") %>% 
+  filter(eval_FSM != "positiva") #Cambiar a "positiva", para quienes declararon tener una evaluación positiva de FSM
+
+t.test(indice_eval ~ Tratamiento, data = het8, alternative = "greater")
+
+
+#Evaluación previa, comparación entre tratamiento de Congruencia y tratamiento de Incongruencia
+het9 <- heterogeneos %>% 
+  filter(Tratamiento=="Congruencia" | Tratamiento=="Incongruencia") %>% 
+  filter(eval_FSM != "negativa") #Cambiar a "positiva", para quienes declararon tener una evaluación positiva de FSM
+
+t.test(indice_eval ~ Tratamiento, data = het9, alternative = "greater")
+
+
+```
+
+Efectos heterogéneos para la variable de conocimiento previo
+```{r, warning=FALSE, message=FALSE}
+#Efectos heterogéneos para la variable de conocimiento previo
+
+#Conocimiento previo, comparación entre grupo de Control y tratamiento de Escándalo
+het10 <- heterogeneos %>% 
+  filter(Tratamiento=="Control" | Tratamiento=="Escandalo") %>% 
+  filter(conoce_FSM == "No") #Cambiar a "Si", para quienes declararon conocerlo
+
+t.test(indice_eval ~ Tratamiento, data = het10, alternative = "greater")
+#Significativo con los que no lo conocían. No significativo con lo que sí lo conocía.
+
+
+#Conocimiento previo, comparación entre grupo de Control y tratamiento de Incongruencia
+het11 <- heterogeneos %>% 
+  filter(Tratamiento=="Control" | Tratamiento=="Incongruencia") %>% 
+  filter(conoce_FSM == "No") #Cambiar a "Si", para quienes declararon conocerlo
+
+t.test(indice_eval ~ Tratamiento, data = het11, alternative = "greater")
+#Significativo con los que sí lo conocían. 
+
+#Conocimiento previo, comparación entre tratamiento de Escándalo y tratamiento de Incongruencia
+het12 <- heterogeneos %>% 
+  filter(Tratamiento=="Escandalo" | Tratamiento=="Incongruencia") %>% 
+  filter(conoce_FSM == "No") #Cambiar a "Si", para quienes declararon conocerlo
+
+t.test(indice_eval ~ Tratamiento, data = het12, alternative = "greater")
+ 
+
+#Conocimiento previo, comparación entre tratamiento de Congruencia y tratamiento de Incongruencia
+het13 <- heterogeneos %>% 
+  filter(Tratamiento=="Congruencia" | Tratamiento=="Incongruencia") %>% 
+  filter(conoce_FSM == "No") #Cambiar a "Si", para quienes declararon conocerlo
+
+t.test(indice_eval ~ Tratamiento, data = het13, alternative = "greater")
+```
+
+Efectos heterogéneos para la variable de sexo
+```{r, warning=FALSE, message=FALSE}
+#Efectos heterogeneos con sexo
+hetsex <- heterogeneos %>% 
+  filter(Tratamiento=="Control" | Tratamiento=="Escandalo") %>% 
+  filter(sexo == "Hombre") #Cambiar a "Hombre", para ver el efecto en los hombres
+
+t.test(indice_eval ~ Tratamiento, data = hetsex, alternative = "greater")
+
+hetsex2a <- heterogeneos %>% 
+  filter(Tratamiento=="Control" | Tratamiento=="Incongruencia") %>% 
+  filter(sexo == "Hombre") #Cambiar a "Hombre", para ver el efecto en los hombres
+
+t.test(indice_eval ~ Tratamiento, data = hetsex2a, alternative = "greater")
+
+hetsex2b <- heterogeneos %>% 
+  filter(Tratamiento=="Escandalo" | Tratamiento=="Incongruencia") %>% 
+  filter(sexo == "Hombre") #Cambiar a "Hombre", para ver el efecto en los hombres
+
+t.test(indice_eval ~ Tratamiento, data = hetsex2b, alternative = "greater")
+
+hetsex3 <- heterogeneos %>% 
+  filter(Tratamiento=="Congruencia" | Tratamiento=="Incongruencia") %>% 
+  filter(sexo == "Hombre") #Cambiar a "Hombre", para ver el efecto en los hombres
+
+t.test(indice_eval ~ Tratamiento, data = hetsex3, alternative = "greater")
+
+
+#rm(het1, het2, het3, het4, het5, het6, het7, het8, het9, het10, het11, het12, het13, hetsex)
+
+```
+
+
+
+
+
+
+
+
+
